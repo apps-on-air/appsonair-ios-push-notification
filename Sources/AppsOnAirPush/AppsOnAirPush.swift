@@ -67,6 +67,13 @@ public final class AppsOnAirPush: NSObject {
     /// synchronous `Notifications.permission` / `.permissionNative` / `.canRequestPermission`.
     internal var cachedAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
+    /// In-memory mirror of `UNUserNotificationCenter.current()`'s registered categories,
+    /// seeded once at `initialize()` (see `seedNotificationCategories()`) and kept current
+    /// as `handleWillPresent` adds action-button categories from incoming payloads. Lets
+    /// registration stay a synchronous merge-and-set instead of an async round trip on
+    /// every foreground notification.
+    internal var knownNotificationCategories: Set<UNNotificationCategory> = []
+
     private override init() {
         super.init()
         // Load persisted user state
@@ -155,6 +162,16 @@ public final class AppsOnAirPush: NSObject {
         }
 
         log("SDK ready. appId=\(appId) deviceId=\(deviceId)", level: .debug)
+
+        // Seed the SDK's category cache with whatever the host app already registered
+        // (async — no completion needed) so the first action-button payload merges
+        // instead of clobbering the host's own categories. See `registerActionCategoryIfNeeded`.
+        UNUserNotificationCenter.current().getNotificationCategories { categories in
+            let box = CategoriesBox(categories: categories)
+            Task { @MainActor in
+                AppsOnAirPush.shared.knownNotificationCategories = box.categories
+            }
+        }
 
         // Start session tracking — observes UIApplication foreground/background lifecycle.
         // Records first_session, last_session, session_count, session_time for MAU metering (§3.9).
@@ -1011,6 +1028,7 @@ public final class AppsOnAirPush: NSObject {
 
     public static func handleWillPresent(notification: UNNotification) -> UNNotificationPresentationOptions {
         let push = PushNotification.from(notification.request.content)
+        registerActionCategoryIfNeeded(for: notification.request.content)
         let event = NotificationWillDisplayEvent(notification: push)
         // Fire all foreground lifecycle listeners — any one can call preventDefault()
         shared.foregroundListeners.forEach { $0.onWillDisplay(event: event) }
@@ -1028,6 +1046,88 @@ public final class AppsOnAirPush: NSObject {
 
         // If any listener suppressed display, return empty options
         return event.isPreventDefault ? [] : [.banner, .badge, .sound]
+    }
+
+    // MARK: - Action buttons (foreground fallback)
+
+    /// `Set<UNNotificationCategory>` isn't `Sendable`; this lets the result of
+    /// `getNotificationCategories` cross from its background completion handler into a
+    /// `Task { @MainActor in }` without tripping strict-concurrency checks. Safe because
+    /// the category set is read-only data handed off once, never mutated concurrently.
+    private struct CategoriesBox: @unchecked Sendable {
+        let categories: Set<UNNotificationCategory>
+    }
+
+    /// One entry of the payload's `actions` array (§9.1) — mirrors the identical private
+    /// type in `AppsOnAirNotificationServiceExtension.swift`. The two targets share no
+    /// common dependency, so this is intentionally duplicated rather than shared.
+    private struct PushActionDefinition {
+        let id: String
+        let title: String
+        let foreground: Bool
+        let destructive: Bool
+    }
+
+    private static func actionDefinitions(from userInfo: [AnyHashable: Any]) -> [PushActionDefinition] {
+        guard let list = userInfo["actions"] as? [[String: Any]] else { return [] }
+        return list.compactMap { entry in
+            guard let id = entry["id"] as? String, let title = entry["title"] as? String else { return nil }
+            return PushActionDefinition(
+                id: id,
+                title: title,
+                foreground: (entry["foreground"] as? Bool) ?? false,
+                destructive: (entry["destructive"] as? Bool) ?? false
+            )
+        }
+    }
+
+    /// Best-effort fallback for payloads that reach the app **without** an NSE having run
+    /// (no `mutable-content: 1`, or no Notification Service Extension target configured).
+    /// When an NSE *is* configured, it already registered the category and assigned
+    /// `content.categoryIdentifier` before this notification was ever handed to iOS — see
+    /// `AppsOnAirPushExtension.registerActionCategory`, the reliable path.
+    ///
+    /// This path cannot do the same: `UNNotification` here is read-only, so the SDK cannot
+    /// assign a category identifier retroactively. It can only register a category under
+    /// whatever identifier the backend already put in `aps.category`, synchronously, right
+    /// before `willPresent` returns — early enough for the current banner in practice, but
+    /// not an Apple-documented guarantee, since there is no public API to force a category
+    /// lookup to happen after this point and before the system renders it.
+    private static func registerActionCategoryIfNeeded(for content: UNNotificationContent) {
+        let userInfo = content.userInfo
+        let actions = actionDefinitions(from: userInfo)
+        guard !actions.isEmpty else { return }
+
+        guard let apsCategory = (userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String,
+              !apsCategory.isEmpty else {
+            log("'actions' present but 'aps.category' is missing on a foreground notification " +
+                "with no NSE to assign one — action buttons will not render. Either set " +
+                "aps.category, or add a Notification Service Extension (AppsOnAirPushServiceExt) " +
+                "which can assign one automatically.", level: .warn)
+            return
+        }
+
+        // Already registered from an earlier notification with this same category — skip
+        // the redundant setNotificationCategories call.
+        if shared.knownNotificationCategories.contains(where: { $0.identifier == apsCategory }) {
+            return
+        }
+
+        let unActions = actions.map { def -> UNNotificationAction in
+            var options: UNNotificationActionOptions = []
+            if def.foreground { options.insert(.foreground) }
+            if def.destructive { options.insert(.destructive) }
+            return UNNotificationAction(identifier: def.id, title: def.title, options: options)
+        }
+        let category = UNNotificationCategory(
+            identifier: apsCategory, actions: unActions, intentIdentifiers: [], options: []
+        )
+
+        shared.knownNotificationCategories = shared.knownNotificationCategories
+            .filter { $0.identifier != apsCategory }
+        shared.knownNotificationCategories.insert(category)
+        UNUserNotificationCenter.current().setNotificationCategories(shared.knownNotificationCategories)
+        log("Registered action category '\(apsCategory)' with \(actions.count) button(s).", level: .debug)
     }
 
     public static func handleDidReceive(response: UNNotificationResponse) {

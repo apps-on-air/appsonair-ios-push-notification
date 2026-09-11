@@ -75,8 +75,12 @@ public extension PushListener {
 public struct PushNotification: @unchecked Sendable {
 
     /// An action button from the payload `actions` array (§9.1). Only `id` + `title`
-    /// are surfaced — `url` / `foreground` / `destructive` drive OS behaviour and are
-    /// left in `userInfo` / `rawPayload` for apps that need them.
+    /// are surfaced here — `url` / `foreground` / `destructive` drive OS behaviour and are
+    /// left in `userInfo` / `rawPayload` for apps that need them. The category that makes
+    /// these buttons actually render is registered elsewhere: automatically by the NSE
+    /// (`AppsOnAirPushExtension`, reliable) or, without one, as a best-effort fallback by
+    /// `AppsOnAirPush.handleWillPresent` when the payload sets `aps.category` — see either
+    /// for the registration itself.
     public struct ActionButton: Sendable {
         public let id: String
         public let title: String

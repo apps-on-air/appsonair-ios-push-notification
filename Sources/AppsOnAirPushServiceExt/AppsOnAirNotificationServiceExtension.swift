@@ -71,6 +71,9 @@ import UserNotifications
 //  | attachments       | [String] or [{id,url}]     | Multiple media URLs. Takes precedence over image_url/video_url.  |
 //  | badge             | Int                        | Absolute app-icon badge count. `max(0, value)`.                  |
 //  | badge_increment   | Int (may be negative)      | Delta applied to the running badge total: `max(0, stored+delta)`.|
+//  | actions           | [{id,title,foreground,     | Action buttons. The NSE builds a `UNNotificationCategory` and    |
+//  |                   | destructive}]              | registers it before delivery, using `aps.category` as the        |
+//  |                   |                            | identifier if present, else one derived from the action ids.     |
 //
 //  Badge counting needs the App Group (STEP 4). The running total is reset to 0 when the
 //  app next enters the foreground. Without an App Group only an absolute `badge` is honoured.
@@ -189,6 +192,7 @@ public enum AppsOnAirPushExtension {
 
         applyTextOverrides(to: content, userInfo: userInfo)
         applyBadge(to: content, userInfo: userInfo)
+        registerActionCategory(to: content, userInfo: userInfo)
         recordDeliveryReceipt(userInfo: userInfo)
 
         let urls = attachmentURLs(from: userInfo)
@@ -301,6 +305,87 @@ public enum AppsOnAirPushExtension {
         case let str as String:    return Int(str)
         default:                   return nil
         }
+    }
+
+    // MARK: Action buttons
+
+    /// One entry of the payload's `actions` array (§9.1). `foreground` / `destructive`
+    /// mirror `UNNotificationActionOptions`; `id` becomes the `UNNotificationAction`
+    /// identifier so `NotificationClickResult.actionId` matches what the user tapped.
+    private struct ActionDefinition {
+        let id: String
+        let title: String
+        let foreground: Bool
+        let destructive: Bool
+    }
+
+    private static func actionDefinitions(from userInfo: [AnyHashable: Any]) -> [ActionDefinition] {
+        guard let list = userInfo[PayloadKey.actions] as? [[String: Any]] else { return [] }
+        return list.compactMap { entry in
+            guard let id = entry["id"] as? String, let title = entry["title"] as? String else { return nil }
+            return ActionDefinition(
+                id: id,
+                title: title,
+                foreground: (entry["foreground"] as? Bool) ?? false,
+                destructive: (entry["destructive"] as? Bool) ?? false
+            )
+        }
+    }
+
+    /// A stable identifier derived from the action ids, used only when the payload
+    /// doesn't already set `aps.category`. Same action set → same identifier, so
+    /// re-registering an unchanged category on every notification is a no-op merge.
+    private static func syntheticCategoryIdentifier(for actions: [ActionDefinition]) -> String {
+        "aoa.actions.\(actions.map(\.id).sorted().joined(separator: "-"))"
+    }
+
+    /// Builds a `UNNotificationCategory` from the payload's `actions` array and registers
+    /// it with iOS *before* the notification is delivered — this is the reliable path
+    /// (unlike the best-effort registration `AppsOnAirPush.handleWillPresent` attempts for
+    /// non-NSE foreground delivery, this one runs before the system has decided what to
+    /// display, since the NSE finishes before `contentHandler` hands content back to iOS).
+    ///
+    /// If `aps.category` is present it's used as the identifier (so the backend can reuse
+    /// a category across notifications, e.g. via a Notification Content Extension). If it's
+    /// absent, a synthetic identifier derived from the action ids is assigned to
+    /// `content.categoryIdentifier` instead — the NSE can mutate content, so unlike the
+    /// foreground path it never needs the backend to invent one.
+    private static func registerActionCategory(
+        to content: UNMutableNotificationContent,
+        userInfo: [AnyHashable: Any]
+    ) {
+        let actions = actionDefinitions(from: userInfo)
+        guard !actions.isEmpty else { return }
+
+        let apsCategory = (userInfo["aps"] as? [AnyHashable: Any])?["category"] as? String
+        let identifier = (apsCategory?.isEmpty == false ? apsCategory : nil)
+            ?? syntheticCategoryIdentifier(for: actions)
+
+        let unActions = actions.map { def -> UNNotificationAction in
+            var options: UNNotificationActionOptions = []
+            if def.foreground { options.insert(.foreground) }
+            if def.destructive { options.insert(.destructive) }
+            return UNNotificationAction(identifier: def.id, title: def.title, options: options)
+        }
+        let category = UNNotificationCategory(
+            identifier: identifier, actions: unActions, intentIdentifiers: [], options: []
+        )
+
+        // Merge with whatever categories are already registered (host app's own, or ones
+        // from earlier notifications) rather than clobbering them. `getNotificationCategories`
+        // is a local query against usernoted — no network — so a 1 s ceiling is generous
+        // headroom against the NSE's overall 25 s / 30 s budget, not a realistic wait.
+        let center = UNUserNotificationCenter.current()
+        let semaphore = DispatchSemaphore(value: 0)
+        center.getNotificationCategories { existing in
+            var merged = existing.filter { $0.identifier != identifier }
+            merged.insert(category)
+            center.setNotificationCategories(merged)
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 1)
+
+        content.categoryIdentifier = identifier
     }
 
     // MARK: Delivery receipt
@@ -515,6 +600,7 @@ public enum AppsOnAirPushExtension {
         static let attachments     = "attachments"
         static let badge           = "badge"
         static let badgeIncrement  = "badge_increment"
+        static let actions         = "actions"
     }
 
     /// App Group `UserDefaults` keys. **Must mirror the literals written by
