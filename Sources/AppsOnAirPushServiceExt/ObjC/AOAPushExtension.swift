@@ -38,6 +38,7 @@ import UserNotifications
 /// }
 /// @end
 /// ```
+@available(macOS 10.14, *)
 @objc(AOAPushExtension)
 public final class AOAPushExtension: NSObject {
 

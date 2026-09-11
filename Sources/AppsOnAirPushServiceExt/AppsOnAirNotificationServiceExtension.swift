@@ -89,6 +89,7 @@ import UserNotifications
 
 /// Base class for the host app's Notification Service Extension target.
 /// Subclass it and (optionally) override `modifyContent(_:request:)`.
+@available(macOS 10.14, *)
 open class AppsOnAirNotificationServiceExtension: UNNotificationServiceExtension {
 
     /// Set by iOS before `didReceive`. Retained so `serviceExtensionTimeWillExpire()` can use it.
@@ -153,6 +154,7 @@ open class AppsOnAirNotificationServiceExtension: UNNotificationServiceExtension
 /// Free-function entry points for teams that already own their
 /// `UNNotificationServiceExtension` subclass and can't change its base class.
 /// Behaviour is identical to `AppsOnAirNotificationServiceExtension`.
+@available(macOS 10.14, *)
 public enum AppsOnAirPushExtension {
 
     // MARK: Tunables

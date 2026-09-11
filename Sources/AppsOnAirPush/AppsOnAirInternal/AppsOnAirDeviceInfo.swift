@@ -35,7 +35,7 @@ enum AppsOnAirDeviceInfo {
     /// added as source with no resource bundle). Keep in sync with
     /// `AppsOnAirPush.podspec` `s.version` on every release.
     private static let fallbackSDKVersion = "0.0.1"
-i
+
     /// SDK version, resolved at runtime from the installed package rather than
     /// hard-coded here:
     ///   • CocoaPods — `CFBundleShortVersionString` of the `AppsOnAirPush` pod
