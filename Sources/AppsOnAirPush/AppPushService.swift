@@ -3,12 +3,12 @@ import Foundation
 import UIKit
 import UserNotifications
 
-// MARK: - AppsOnAirPush
+// MARK: - AppPushService
 
 @MainActor
-public final class AppsOnAirPush: NSObject {
+public final class AppPushService: NSObject {
 
-    public static let shared = AppsOnAirPush()
+    public static let shared = AppPushService()
 
     internal var isConfigured = false
     internal let storage = PushStorage()
@@ -103,7 +103,7 @@ public final class AppsOnAirPush: NSObject {
     // MARK: - Public API
 
     /// Call once at app launch before anything else.
-    /// Renamed from `configure()` to match OneSignal v5 (`OneSignal.initialize`) and Android (`AppsOnAirPush.initialize`).
+    /// Renamed from `configure()` to match OneSignal v5 (`OneSignal.initialize`) and Android (`AppPushService.initialize`).
     ///
     /// The app ID is resolved by AppsOnAir_Core from your app target's Info.plist.
     /// Add an `AppsonairAppId` (or legacy `AppsOnAirAPIKey`) String entry:
@@ -137,8 +137,8 @@ public final class AppsOnAirPush: NSObject {
             return
         }
         // Legacy debug flag — sets logLevel to .debug if true and not already configured
-        if debug && AppsOnAirPush.Debug.logLevel == .none {
-            AppsOnAirPush.Debug.logLevel = .debug
+        if debug && AppPushService.Debug.logLevel == .none {
+            AppPushService.Debug.logLevel = .debug
         }
         shared._appId = appId
         shared._appGroupId = resolveAppGroupId()
@@ -146,7 +146,7 @@ public final class AppsOnAirPush: NSObject {
 
         // Write shared data to App Group so the Notification Service Extension can read it.
         // NSE runs in a separate process and cannot link AppsOnAir_Core, so it needs a
-        // copy of deviceId here. In-process code reads AppsOnAirPush.deviceId directly.
+        // copy of deviceId here. In-process code reads AppPushService.deviceId directly.
         if let groupId = shared._appGroupId, let groupDefaults = UserDefaults(suiteName: groupId) {
             groupDefaults.set(appId,    forKey: "com.appsonair.push.appId")
             groupDefaults.set(deviceId, forKey: "com.appsonair.push.deviceIdCache")
@@ -169,7 +169,7 @@ public final class AppsOnAirPush: NSObject {
         UNUserNotificationCenter.current().getNotificationCategories { categories in
             let box = CategoriesBox(categories: categories)
             Task { @MainActor in
-                AppsOnAirPush.shared.knownNotificationCategories = box.categories
+                AppPushService.shared.knownNotificationCategories = box.categories
             }
         }
 
@@ -188,8 +188,8 @@ public final class AppsOnAirPush: NSObject {
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in
             Task { @MainActor in
-                AppsOnAirPush.refreshPermissionCache()
-                AppsOnAirPush.clearBadgeOnForegroundIfEnabled()
+                AppPushService.refreshPermissionCache()
+                AppPushService.clearBadgeOnForegroundIfEnabled()
             }
         }
         // Cold launch: clear the badge the app was launched with (matches OneSignal).
@@ -345,7 +345,7 @@ public final class AppsOnAirPush: NSObject {
     }
 
     /// Broadcast a push-subscription change to observers registered through
-    /// `AppsOnAirPush.User.pushSubscription.addObserver(_:)`. Fires when the APNs
+    /// `AppPushService.User.pushSubscription.addObserver(_:)`. Fires when the APNs
     /// token first arrives or refreshes, when the backend returns a
     /// `subscriptionId`, and when notification permission flips. No-ops when
     /// neither the token nor the opt-in state actually changed.
@@ -372,38 +372,38 @@ public final class AppsOnAirPush: NSObject {
     internal static func registerSubscriptionIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard !shared.didRegisterSubscription else {
-            print("[AppsOnAirPush] subscription already registered this launch — skip (\(reason))")
+            print("[AppPushService] subscription already registered this launch — skip (\(reason))")
             return
         }
         guard !shared.subscriptionRequestInFlight else {
-            print("[AppsOnAirPush] subscription request already in flight — skip (\(reason))")
+            print("[AppPushService] subscription request already in flight — skip (\(reason))")
             return
         }
         guard let token = shared.storage.getApnsToken(), !token.isEmpty else {
-            print("[AppsOnAirPush] no push token yet — subscription deferred (\(reason))")
+            print("[AppPushService] no push token yet — subscription deferred (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] subscription ready to register (\(reason)) — waiting for connectivity")
+        print("[AppPushService] subscription ready to register (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
             // State may have changed while queued for connectivity.
             guard !shared.didRegisterSubscription, !shared.subscriptionRequestInFlight else { return }
             shared.subscriptionRequestInFlight = true
-            print("[AppsOnAirPush] POST /v1/subscriptions (\(reason))")
+            print("[AppPushService] POST /v1/subscriptions (\(reason))")
 
             AppsOnAirSubscriptionAPI.registerDevice { data, response, error in
                 shared.subscriptionRequestInFlight = false
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
 
                 if let error {
-                    print("[AppsOnAirPush] /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
 
                 guard (200..<300).contains(status) else {
-                    print("[AppsOnAirPush] /v1/subscriptions non-2xx — not marking registered")
+                    print("[AppPushService] /v1/subscriptions non-2xx — not marking registered")
                     return
                 }
 
@@ -412,21 +412,21 @@ public final class AppsOnAirPush: NSObject {
 
                 guard let data,
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    print("[AppsOnAirPush] /v1/subscriptions 2xx but response body was not JSON")
+                    print("[AppPushService] /v1/subscriptions 2xx but response body was not JSON")
                     return
                 }
                 let sid = (json["subscriptionId"] as? String)
                     ?? (json["subscription_id"] as? String)
                     ?? ((json["data"] as? [String: Any])?["subscriptionId"] as? String)
                 if let sid, !sid.isEmpty {
-                    print("[AppsOnAirPush] /v1/subscriptions subscriptionId=\(sid)")
+                    print("[AppPushService] /v1/subscriptions subscriptionId=\(sid)")
                     setSubscriptionId(sid)              // persists + mirrors to App Group
                     firePushSubscriptionChange()
                     // Now that a subscriptionId exists, pull the backend's tag set
                     // into the local cache so User.getTags() reads it synchronously.
                     refreshTagsIfReady(reason: .tagsFetched)
                 } else {
-                    print("[AppsOnAirPush] /v1/subscriptions 2xx but no subscriptionId in response")
+                    print("[AppPushService] /v1/subscriptions 2xx but no subscriptionId in response")
                 }
             }
         }
@@ -443,23 +443,23 @@ public final class AppsOnAirPush: NSObject {
     internal static func updateSubscriptionEnabledIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — enabled sync deferred (\(reason))")
+            print("[AppPushService] no subscriptionId yet — enabled sync deferred (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] subscription enabled sync ready (\(reason)) — waiting for connectivity")
+        print("[AppPushService] subscription enabled sync ready (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
             let enabled = Notifications.permission
-            print("[AppsOnAirPush] PATCH /v1/subscriptions enabled=\(enabled) (\(reason))")
+            print("[AppPushService] PATCH /v1/subscriptions enabled=\(enabled) (\(reason))")
 
             AppsOnAirSubscriptionAPI.updateSubscription(enabled: enabled) { data, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] PATCH /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] PATCH /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] PATCH /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] PATCH /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -479,29 +479,29 @@ public final class AppsOnAirPush: NSObject {
     internal static func updatePushTokenIfRotated(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — token PATCH deferred (\(reason))")
+            print("[AppPushService] no subscriptionId yet — token PATCH deferred (\(reason))")
             return
         }
         guard !shared.pushTokenUpdateInFlight else {
-            print("[AppsOnAirPush] token PATCH already in flight — skip (\(reason))")
+            print("[AppPushService] token PATCH already in flight — skip (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] push token rotated (\(reason)) — waiting for connectivity")
+        print("[AppPushService] push token rotated (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
             guard !shared.pushTokenUpdateInFlight else { return }
             shared.pushTokenUpdateInFlight = true
-            print("[AppsOnAirPush] PATCH /v1/subscriptions push_token (\(reason))")
+            print("[AppPushService] PATCH /v1/subscriptions push_token (\(reason))")
 
             AppsOnAirSubscriptionAPI.updatePushToken { data, response, error in
                 shared.pushTokenUpdateInFlight = false
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] PATCH /v1/subscriptions push_token error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] PATCH /v1/subscriptions push_token error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] PATCH /v1/subscriptions push_token HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] PATCH /v1/subscriptions push_token HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -520,23 +520,23 @@ public final class AppsOnAirPush: NSObject {
     internal static func syncExternalIdIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — external_id sync deferred (\(reason))")
+            print("[AppPushService] no subscriptionId yet — external_id sync deferred (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] external_id sync ready (\(reason)) — waiting for connectivity")
+        print("[AppPushService] external_id sync ready (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
             let externalId = shared.externalId
-            print("[AppsOnAirPush] PATCH /v1/subscriptions external_id=\(externalId ?? "null") (\(reason))")
+            print("[AppPushService] PATCH /v1/subscriptions external_id=\(externalId ?? "null") (\(reason))")
 
             AppsOnAirSubscriptionAPI.updateExternalId(externalId) { data, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] PATCH /v1/subscriptions external_id error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] PATCH /v1/subscriptions external_id error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] PATCH /v1/subscriptions external_id HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] PATCH /v1/subscriptions external_id HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -556,23 +556,23 @@ public final class AppsOnAirPush: NSObject {
     internal static func syncOptInStateIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — opt-in sync deferred (\(reason))")
+            print("[AppPushService] no subscriptionId yet — opt-in sync deferred (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] opt-in state sync ready (\(reason)) — waiting for connectivity")
+        print("[AppPushService] opt-in state sync ready (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
             let optedOut = shared.isOptedOut
-            print("[AppsOnAirPush] POST /v1/subscriptions/\(sid)/\(optedOut ? "opt-out" : "opt-in") (\(reason))")
+            print("[AppPushService] POST /v1/subscriptions/\(sid)/\(optedOut ? "opt-out" : "opt-in") (\(reason))")
 
             AppsOnAirSubscriptionAPI.updateOptInState(optedOut: optedOut) { data, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] opt-in state POST error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] opt-in state POST error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] opt-in state POST HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] opt-in state POST HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -590,23 +590,23 @@ public final class AppsOnAirPush: NSObject {
     internal static func syncLanguageIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — language sync deferred (\(reason))")
+            print("[AppPushService] no subscriptionId yet — language sync deferred (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] language sync ready (\(reason)) — waiting for connectivity")
+        print("[AppPushService] language sync ready (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
             let language = shared.language
-            print("[AppsOnAirPush] PATCH /v1/subscriptions/\(sid)/language language=\(language) (\(reason))")
+            print("[AppPushService] PATCH /v1/subscriptions/\(sid)/language language=\(language) (\(reason))")
 
             AppsOnAirSubscriptionAPI.updateLanguage(language) { data, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] language PATCH error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] language PATCH error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] language PATCH HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] language PATCH HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -624,27 +624,27 @@ public final class AppsOnAirPush: NSObject {
     internal static func syncTagsIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — tags sync deferred (\(reason))")
+            print("[AppPushService] no subscriptionId yet — tags sync deferred (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] tags sync ready (\(reason)) — waiting for connectivity")
+        print("[AppPushService] tags sync ready (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
             let tags = shared.tags
             guard !tags.isEmpty else {
-                print("[AppsOnAirPush] no tags to sync (\(reason))")
+                print("[AppPushService] no tags to sync (\(reason))")
                 return
             }
-            print("[AppsOnAirPush] POST /v1/subscriptions/\(sid)/tags \(tags) (\(reason))")
+            print("[AppPushService] POST /v1/subscriptions/\(sid)/tags \(tags) (\(reason))")
 
             AppsOnAirSubscriptionAPI.updateTags(tags) { data, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] tags POST error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] tags POST error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] tags POST HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] tags POST HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -665,22 +665,22 @@ public final class AppsOnAirPush: NSObject {
         let keys = keys.filter { !$0.isEmpty }
         guard !keys.isEmpty else { return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — tags/remove sync skipped (\(reason))")
+            print("[AppPushService] no subscriptionId yet — tags/remove sync skipped (\(reason))")
             return
         }
 
-        print("[AppsOnAirPush] tags/remove sync ready (\(reason)) — waiting for connectivity")
+        print("[AppPushService] tags/remove sync ready (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
-            print("[AppsOnAirPush] POST /v1/subscriptions/\(sid)/tags/remove \(keys) (\(reason))")
+            print("[AppPushService] POST /v1/subscriptions/\(sid)/tags/remove \(keys) (\(reason))")
 
             AppsOnAirSubscriptionAPI.removeTags(keys) { data, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] tags/remove POST error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] tags/remove POST error (\(reason)): \(error.localizedDescription)")
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] tags/remove POST HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] tags/remove POST HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -704,24 +704,24 @@ public final class AppsOnAirPush: NSObject {
     ) {
         guard shared.isConfigured else { completion?(shared.tags); return }
         guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppsOnAirPush] no subscriptionId yet — tags GET skipped (\(reason))")
+            print("[AppPushService] no subscriptionId yet — tags GET skipped (\(reason))")
             completion?(shared.tags)
             return
         }
 
-        print("[AppsOnAirPush] tags refresh ready (\(reason)) — waiting for connectivity")
+        print("[AppPushService] tags refresh ready (\(reason)) — waiting for connectivity")
         AppsOnAirNetworkMonitor.runWhenConnected {
-            print("[AppsOnAirPush] GET /v1/subscriptions/\(sid)/tags (\(reason))")
+            print("[AppPushService] GET /v1/subscriptions/\(sid)/tags (\(reason))")
 
             AppsOnAirSubscriptionAPI.fetchTags { data, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 if let error {
-                    print("[AppsOnAirPush] tags GET error (\(reason)): \(error.localizedDescription)")
+                    print("[AppPushService] tags GET error (\(reason)): \(error.localizedDescription)")
                     completion?(shared.tags)
                     return
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppsOnAirPush] tags GET HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] tags GET HTTP \(status) (\(reason)): \(bodyText)")
 
                 guard (200..<300).contains(status),
                       let remote = AppsOnAirSubscriptionAPI.parseTagsResponse(data) else {
@@ -733,7 +733,7 @@ public final class AppsOnAirPush: NSObject {
                 if let encoded = try? JSONEncoder().encode(remote) {
                     UserDefaults.standard.set(encoded, forKey: "com.appsonair.push.tags")
                 }
-                print("[AppsOnAirPush] local tag cache refreshed from backend (\(remote.count) tag(s))")
+                print("[AppPushService] local tag cache refreshed from backend (\(remote.count) tag(s))")
                 completion?(remote)
             }
         }
@@ -741,12 +741,12 @@ public final class AppsOnAirPush: NSObject {
 
     /// Ask the user for notification permission and register with APNs.
     /// Renamed from `requestAuthorization()` to match OneSignal v5 (`OneSignal.Notifications.requestPermission`)
-    /// and Android (`AppsOnAirPush.Notifications.requestPermission`).
+    /// and Android (`AppPushService.Notifications.requestPermission`).
     /// The permission dialog is shown on both device and simulator. On simulator the APNs
     /// device token is unavailable, so a mock token is emitted after the user grants permission.
     public static func requestPermission() {
         guard shared.isConfigured else {
-            emitError(code: .notInitialized, message: "Call AppsOnAirPush.initialize() before requesting permission.")
+            emitError(code: .notInitialized, message: "Call AppPushService.initialize() before requesting permission.")
             return
         }
 
@@ -955,7 +955,7 @@ public final class AppsOnAirPush: NSObject {
         if #available(iOS 16.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(count) { error in
                 if let error {
-                    AppsOnAirPush.log("setBadgeCount failed: \(error.localizedDescription)", level: .error)
+                    AppPushService.log("setBadgeCount failed: \(error.localizedDescription)", level: .error)
                 }
             }
         } else {
@@ -1085,7 +1085,7 @@ public final class AppsOnAirPush: NSObject {
     /// (no `mutable-content: 1`, or no Notification Service Extension target configured).
     /// When an NSE *is* configured, it already registered the category and assigned
     /// `content.categoryIdentifier` before this notification was ever handed to iOS — see
-    /// `AppsOnAirPushExtension.registerActionCategory`, the reliable path.
+    /// `AppPushServiceExtension.registerActionCategory`, the reliable path.
     ///
     /// This path cannot do the same: `UNNotification` here is read-only, so the SDK cannot
     /// assign a category identifier retroactively. It can only register a category under
@@ -1245,8 +1245,8 @@ public final class AppsOnAirPush: NSObject {
 
     // Internal so PushAppDelegateSwizzler can log through the same channel
     internal static func log(_ message: String, level: LogLevel = .debug) {
-        guard level <= AppsOnAirPush.Debug.logLevel else { return }
-        print("[AppsOnAirPush] [\(level)] \(message)")
+        guard level <= AppPushService.Debug.logLevel else { return }
+        print("[AppPushService] [\(level)] \(message)")
     }
 
     private static func emitError(code: PushError.Code, message: String) {

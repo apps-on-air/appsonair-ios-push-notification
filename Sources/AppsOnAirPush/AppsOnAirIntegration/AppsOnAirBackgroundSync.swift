@@ -35,7 +35,7 @@ import BackgroundTasks
 /// func application(_ application: UIApplication,
 ///                  didFinishLaunchingWithOptions ...) -> Bool {
 ///     AppsOnAirBackgroundSync.registerHandlers()
-///     AppsOnAirPush.initialize()
+///     AppPushService.initialize()
 ///     AppsOnAirBackgroundSync.scheduleIfNeeded()
 ///     return true
 /// }
@@ -44,7 +44,7 @@ import BackgroundTasks
 /// @main struct MyApp: App {
 ///     init() {
 ///         AppsOnAirBackgroundSync.registerHandlers()
-///         AppsOnAirPush.initialize()
+///         AppPushService.initialize()
 ///         AppsOnAirBackgroundSync.scheduleIfNeeded()
 ///     }
 /// }

@@ -3,7 +3,7 @@ import Foundation
 // MARK: - AppsOnAirNetworkMonitor
 //
 // One place to gate SDK work on network connectivity, backed by AppsOnAir_Core's
-// reachability (`AppsOnAirPush.shared.core`). Core keeps only a SINGLE
+// reachability (`AppPushService.shared.core`). Core keeps only a SINGLE
 // `networkStatusListenerHandler`, so this file owns that slot and fans out to any
 // number of queued actions.
 //
@@ -25,7 +25,7 @@ enum AppsOnAirNetworkMonitor {
     /// `core.isNetworkConnected` is `nil` until the first reachability callback —
     /// treated as "not connected" here.
     static var isConnected: Bool {
-        AppsOnAirPush.shared.core.isNetworkConnected == true
+        AppPushService.shared.core.isNetworkConnected == true
     }
 
     /// Actions waiting for connectivity.
@@ -52,7 +52,7 @@ enum AppsOnAirNetworkMonitor {
     private static func startListening() {
         guard !listening else { return }
         listening = true
-        AppsOnAirPush.shared.core.networkStatusListenerHandler { connected in
+        AppPushService.shared.core.networkStatusListenerHandler { connected in
             Task { @MainActor in
                 print("[AppsOnAirNetworkMonitor] connectivity changed → \(connected)")
                 guard connected, !pending.isEmpty else { return }

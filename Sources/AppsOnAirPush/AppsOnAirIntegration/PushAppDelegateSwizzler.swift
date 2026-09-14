@@ -31,7 +31,7 @@ final class PushAppDelegateSwizzler {
     // The host app will never crash from a swizzle failure.
     private static func safeSwizzle() {
         guard let cls = resolveAppDelegateClass() else {
-            AppsOnAirPush.log("AppDelegate class not found. APNs token callbacks must be forwarded manually.", level: .warn)
+            AppPushService.log("AppDelegate class not found. APNs token callbacks must be forwarded manually.", level: .warn)
             return
         }
 
@@ -76,7 +76,7 @@ final class PushAppDelegateSwizzler {
 
         // @convention(block) is required by imp_implementationWithBlock — do not pass as Any
         let block: @convention(block) (AnyObject, UIApplication, Data) -> Void = { obj, app, token in
-            MainActor.assumeIsolated { AppsOnAirPush.handleAPNsToken(token) }
+            MainActor.assumeIsolated { AppPushService.handleAPNsToken(token) }
             if let orig = originalDidRegisterTokenIMP {
                 unsafeBitCast(orig, to: DidRegisterTokenFunc.self)(obj, sel, app, token)
             }
@@ -91,7 +91,7 @@ final class PushAppDelegateSwizzler {
         let sel = #selector(UIApplicationDelegate.application(_:didFailToRegisterForRemoteNotificationsWithError:))
 
         let block: @convention(block) (AnyObject, UIApplication, Error) -> Void = { obj, app, error in
-            MainActor.assumeIsolated { AppsOnAirPush.handleAPNsRegistrationError(error) }
+            MainActor.assumeIsolated { AppPushService.handleAPNsRegistrationError(error) }
             if let orig = originalDidFailRegisterIMP {
                 unsafeBitCast(orig, to: DidFailRegisterFunc.self)(obj, sel, app, error)
             }
@@ -115,7 +115,7 @@ final class PushAppDelegateSwizzler {
             } else {
                 // No host implementation — SDK handles completion
                 MainActor.assumeIsolated {
-                    AppsOnAirPush.handleSilentPush(userInfo, fetchCompletionHandler: completion)
+                    AppPushService.handleSilentPush(userInfo, fetchCompletionHandler: completion)
                 }
             }
         }
@@ -154,7 +154,7 @@ public final class PushNotificationDelegate: NSObject, @preconcurrency UNUserNot
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        AppsOnAirPush.handleWillPresent(notification: notification)
+        AppPushService.handleWillPresent(notification: notification)
     }
 
     // NOTE: There is no `async` variant of didReceive(_:withCompletionHandler:).
@@ -165,7 +165,7 @@ public final class PushNotificationDelegate: NSObject, @preconcurrency UNUserNot
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        AppsOnAirPush.handleDidReceive(response: response)
+        AppPushService.handleDidReceive(response: response)
         completionHandler()
     }
 }

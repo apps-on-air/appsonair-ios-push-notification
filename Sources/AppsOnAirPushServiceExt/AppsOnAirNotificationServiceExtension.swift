@@ -11,7 +11,7 @@ import UserNotifications
 // It is available to the host app in two equivalent ways:
 //   1. `AppsOnAirNotificationServiceExtension` — an `open` base class to subclass
 //      (drop-in, no forwarding code).
-//   2. `AppsOnAirPushExtension` — free functions to call from your own
+//   2. `AppPushServiceExtension` — free functions to call from your own
 //      `UNNotificationServiceExtension` subclass, for teams that already have one
 //      or need to chain another SDK.
 //
@@ -22,7 +22,7 @@ import UserNotifications
 //
 //  STEP 2 — Link this library to the NSE target ONLY (never the main app):
 //             • SPM:       AppsOnAirPushServiceExt
-//             • CocoaPods: pod 'AppsOnAirPush/ServiceExtension'
+//             • CocoaPods: pod 'AppPushService/ServiceExtension'
 //
 //  STEP 3 — Make your NSE class inherit from the base class:
 //
@@ -39,7 +39,7 @@ import UserNotifications
 //                     withContentHandler handler: @escaping (UNNotificationContent) -> Void) {
 //                     guard let content = request.content.mutableCopy() as? UNMutableNotificationContent
 //                     else { return handler(request.content) }
-//                     AppsOnAirPushExtension.didReceiveNotificationExtensionRequest(
+//                     AppPushServiceExtension.didReceiveNotificationExtensionRequest(
 //                         request, with: content, withContentHandler: handler)
 //                 }
 //             }
@@ -123,7 +123,7 @@ open class AppsOnAirNotificationServiceExtension: UNNotificationServiceExtension
 
         // Blocks until the receipt is queued and any attachment is downloaded (or the
         // internal time budget is hit), then calls `contentHandler` exactly once.
-        AppsOnAirPushExtension.didReceiveNotificationExtensionRequest(
+        AppPushServiceExtension.didReceiveNotificationExtensionRequest(
             request, with: mutable, withContentHandler: contentHandler
         )
         // Delivery is done. Drop the handler so a late serviceExtensionTimeWillExpire()
@@ -135,7 +135,7 @@ open class AppsOnAirNotificationServiceExtension: UNNotificationServiceExtension
         guard let request = receivedRequest,
               let content = bestAttemptContent,
               let handler = contentHandler else { return }
-        let final = AppsOnAirPushExtension.serviceExtensionTimeWillExpireRequest(request, with: content) ?? content
+        let final = AppPushServiceExtension.serviceExtensionTimeWillExpireRequest(request, with: content) ?? content
         handler(final)
         contentHandler = nil
     }
@@ -158,7 +158,7 @@ open class AppsOnAirNotificationServiceExtension: UNNotificationServiceExtension
 /// `UNNotificationServiceExtension` subclass and can't change its base class.
 /// Behaviour is identical to `AppsOnAirNotificationServiceExtension`.
 @available(macOS 10.14, *)
-public enum AppsOnAirPushExtension {
+public enum AppPushServiceExtension {
 
     // MARK: Tunables
 
@@ -291,7 +291,7 @@ public enum AppsOnAirPushExtension {
         defaults.set(newValue, forKey: SharedKey.badgeCount)
         content.badge = NSNumber(value: newValue)
 
-        NSLog("[AppsOnAirPush NSE] Badge count %d → %d (increment=%@, absolute=%@).",
+        NSLog("[AppPushService NSE] Badge count %d → %d (increment=%@, absolute=%@).",
               current, newValue,
               increment.map(String.init) ?? "nil",
               absolute.map(String.init) ?? "nil")
@@ -341,7 +341,7 @@ public enum AppsOnAirPushExtension {
 
     /// Builds a `UNNotificationCategory` from the payload's `actions` array and registers
     /// it with iOS *before* the notification is delivered — this is the reliable path
-    /// (unlike the best-effort registration `AppsOnAirPush.handleWillPresent` attempts for
+    /// (unlike the best-effort registration `AppPushService.handleWillPresent` attempts for
     /// non-NSE foreground delivery, this one runs before the system has decided what to
     /// display, since the NSE finishes before `contentHandler` hands content back to iOS).
     ///
@@ -402,7 +402,7 @@ public enum AppsOnAirPushExtension {
 
         guard let groupId = resolveAppGroupId(),
               let defaults = UserDefaults(suiteName: groupId) else {
-            NSLog("[AppsOnAirPush NSE] App Group not resolvable — delivery receipt NOT persisted. " +
+            NSLog("[AppPushService NSE] App Group not resolvable — delivery receipt NOT persisted. " +
                   "Add 'AppsOnAirAppGroup' to the NSE Info.plist (STEP 4).")
             return
         }
@@ -422,7 +422,7 @@ public enum AppsOnAirPushExtension {
         if queue.count > 200 { queue.removeFirst(queue.count - 200) }
         defaults.set(queue, forKey: SharedKey.nseEventQueue)
 
-        NSLog("[AppsOnAirPush NSE] Delivery receipt queued. notificationId=%@ queueSize=%d",
+        NSLog("[AppPushService NSE] Delivery receipt queued. notificationId=%@ queueSize=%d",
               notificationId ?? "nil", queue.count)
     }
 
@@ -604,7 +604,7 @@ public enum AppsOnAirPushExtension {
     }
 
     /// App Group `UserDefaults` keys. **Must mirror the literals written by
-    /// `AppsOnAirPush.initialize()` in the main `AppsOnAirPush` target** — the two
+    /// `AppPushService.initialize()` in the main `AppPushService` target** — the two
     /// targets do not share code.
     private enum SharedKey {
         static let appId          = "com.appsonair.push.appId"

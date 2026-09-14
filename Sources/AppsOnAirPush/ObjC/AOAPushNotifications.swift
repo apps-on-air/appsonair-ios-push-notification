@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - AOAPushNotifications
 
-/// ObjC-compatible facade for AppsOnAirPush.Notifications.
+/// ObjC-compatible facade for AppPushService.Notifications.
 @objc(AOAPushNotifications)
 public final class AOAPushNotifications: NSObject {
 
@@ -13,19 +13,19 @@ public final class AOAPushNotifications: NSObject {
     /// Request OS notification permission (no fallback to Settings).
     @objc @MainActor
     public static func requestPermission() {
-        AppsOnAirPush.Notifications.requestPermission(fallbackToSettings: false)
+        AppPushService.Notifications.requestPermission(fallbackToSettings: false)
     }
 
     /// Request OS notification permission, optionally opening Settings if already denied.
     @objc @MainActor
     public static func requestPermission(fallbackToSettings: Bool) {
-        AppsOnAirPush.Notifications.requestPermission(fallbackToSettings: fallbackToSettings)
+        AppPushService.Notifications.requestPermission(fallbackToSettings: fallbackToSettings)
     }
 
     /// Request provisional (quiet) authorization — iOS 12+.
     @objc @MainActor
     public static func registerForProvisionalAuthorization() {
-        AppsOnAirPush.Notifications.registerForProvisionalAuthorization()
+        AppPushService.Notifications.registerForProvisionalAuthorization()
     }
 
     // MARK: - Permission state (synchronous, cached)
@@ -33,26 +33,26 @@ public final class AOAPushNotifications: NSObject {
     /// Whether notifications are currently permitted.
     @objc @MainActor
     public static var permission: Bool {
-        AppsOnAirPush.Notifications.permission
+        AppPushService.Notifications.permission
     }
 
     /// The native OS authorization status (cached).
     @objc @MainActor
     public static var permissionNative: AOANotificationPermission {
-        AppsOnAirPush.Notifications.permissionNative.aoaValue
+        AppPushService.Notifications.permissionNative.aoaValue
     }
 
     /// Whether `requestPermission()` would show the system dialog.
     @objc @MainActor
     public static var canRequestPermission: Bool {
-        AppsOnAirPush.Notifications.canRequestPermission
+        AppPushService.Notifications.canRequestPermission
     }
 
     /// Force-refresh the cached permission state and return the current value.
     @objc
     public static func refreshPermission(completion: @escaping @Sendable (Bool) -> Void) {
         Task { @MainActor in
-            completion(await AppsOnAirPush.Notifications.refreshPermission())
+            completion(await AppPushService.Notifications.refreshPermission())
         }
     }
 
@@ -65,7 +65,7 @@ public final class AOAPushNotifications: NSObject {
         if storage.permissionAdapters.object(forKey: observer) == nil {
             let bridge = AOAPermissionObserverBridge(observer)
             storage.permissionAdapters.setObject(bridge, forKey: observer)
-            AppsOnAirPush.Notifications.addPermissionObserver(bridge)
+            AppPushService.Notifications.addPermissionObserver(bridge)
         }
     }
 
@@ -74,7 +74,7 @@ public final class AOAPushNotifications: NSObject {
     public static func removePermissionObserver(_ observer: any AOANotificationPermissionObserver) {
         let storage = AOABridgeStorage.shared
         if let bridge = storage.permissionAdapters.object(forKey: observer) {
-            AppsOnAirPush.Notifications.removePermissionObserver(bridge)
+            AppPushService.Notifications.removePermissionObserver(bridge)
             storage.permissionAdapters.removeObject(forKey: observer)
         }
     }
@@ -88,7 +88,7 @@ public final class AOAPushNotifications: NSObject {
         if storage.lifecycleAdapters.object(forKey: listener) == nil {
             let bridge = AOALifecycleListenerBridge(listener)
             storage.lifecycleAdapters.setObject(bridge, forKey: listener)
-            AppsOnAirPush.Notifications.addForegroundLifecycleListener(bridge)
+            AppPushService.Notifications.addForegroundLifecycleListener(bridge)
         }
     }
 
@@ -97,7 +97,7 @@ public final class AOAPushNotifications: NSObject {
     public static func removeForegroundLifecycleListener(_ listener: any AOANotificationLifecycleListener) {
         let storage = AOABridgeStorage.shared
         if let bridge = storage.lifecycleAdapters.object(forKey: listener) {
-            AppsOnAirPush.Notifications.removeForegroundLifecycleListener(bridge)
+            AppPushService.Notifications.removeForegroundLifecycleListener(bridge)
             storage.lifecycleAdapters.removeObject(forKey: listener)
         }
     }
@@ -111,7 +111,7 @@ public final class AOAPushNotifications: NSObject {
         if storage.clickAdapters.object(forKey: listener) == nil {
             let bridge = AOAClickListenerBridge(listener)
             storage.clickAdapters.setObject(bridge, forKey: listener)
-            AppsOnAirPush.Notifications.addClickListener(bridge)
+            AppPushService.Notifications.addClickListener(bridge)
         }
     }
 
@@ -120,7 +120,7 @@ public final class AOAPushNotifications: NSObject {
     public static func removeClickListener(_ listener: any AOANotificationClickListener) {
         let storage = AOABridgeStorage.shared
         if let bridge = storage.clickAdapters.object(forKey: listener) {
-            AppsOnAirPush.Notifications.removeClickListener(bridge)
+            AppPushService.Notifications.removeClickListener(bridge)
             storage.clickAdapters.removeObject(forKey: listener)
         }
     }
@@ -130,18 +130,18 @@ public final class AOAPushNotifications: NSObject {
     /// Remove all delivered notifications from Notification Center.
     @objc @MainActor
     public static func clearAllNotifications() {
-        AppsOnAirPush.Notifications.clearAllNotifications()
+        AppPushService.Notifications.clearAllNotifications()
     }
 
     /// Remove a specific delivered notification by its identifier.
     @objc @MainActor
     public static func removeNotification(withIdentifier identifier: String) {
-        AppsOnAirPush.Notifications.removeNotification(withIdentifier: identifier)
+        AppPushService.Notifications.removeNotification(withIdentifier: identifier)
     }
 
     /// Remove multiple delivered notifications by their identifiers.
     @objc @MainActor
     public static func removeNotifications(withIdentifiers identifiers: [String]) {
-        AppsOnAirPush.Notifications.removeNotifications(withIdentifiers: identifiers)
+        AppPushService.Notifications.removeNotifications(withIdentifiers: identifiers)
     }
 }

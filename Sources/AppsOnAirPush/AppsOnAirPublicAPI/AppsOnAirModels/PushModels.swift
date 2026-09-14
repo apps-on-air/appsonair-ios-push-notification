@@ -78,8 +78,8 @@ public struct PushNotification: @unchecked Sendable {
     /// are surfaced here — `url` / `foreground` / `destructive` drive OS behaviour and are
     /// left in `userInfo` / `rawPayload` for apps that need them. The category that makes
     /// these buttons actually render is registered elsewhere: automatically by the NSE
-    /// (`AppsOnAirPushExtension`, reliable) or, without one, as a best-effort fallback by
-    /// `AppsOnAirPush.handleWillPresent` when the payload sets `aps.category` — see either
+    /// (`AppPushServiceExtension`, reliable) or, without one, as a best-effort fallback by
+    /// `AppPushService.handleWillPresent` when the payload sets `aps.category` — see either
     /// for the registration itself.
     public struct ActionButton: Sendable {
         public let id: String
@@ -355,7 +355,7 @@ public struct PushEvent: Codable {
     public let actionId: String?
     /// Unix timestamp (seconds since epoch) when the event occurred.
     public let timestamp: TimeInterval
-    /// Per-install device ID, from `AppsOnAirPush.deviceId` (AppsOnAir_Core).
+    /// Per-install device ID, from `AppPushService.deviceId` (AppsOnAir_Core).
     public let deviceId: String
 
     init(
@@ -369,9 +369,9 @@ public struct PushEvent: Codable {
         self.subscriptionId = subscriptionId
         self.actionId = actionId
         self.timestamp = Date().timeIntervalSince1970
-        // AppsOnAirPush.deviceId is nonisolated and synchronous, so it is safe to
+        // AppPushService.deviceId is nonisolated and synchronous, so it is safe to
         // read here regardless of actor context.
-        self.deviceId = AppsOnAirPush.deviceId
+        self.deviceId = AppPushService.deviceId
     }
 
     /// Full initializer — used when replaying an event captured in another process

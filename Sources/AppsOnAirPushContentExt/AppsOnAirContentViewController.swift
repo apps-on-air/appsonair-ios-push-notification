@@ -8,7 +8,7 @@ import UserNotificationsUI
 ///
 /// ## Setup
 /// 1. In Xcode add a new **Notification Content Extension** target to your app.
-/// 2. Link `AppsOnAirPushContentExt` (SPM) or pod `AppsOnAirPush/ContentExtension` to
+/// 2. Link `AppsOnAirPushContentExt` (SPM) or pod `AppPushService/ContentExtension` to
 ///    **only** that extension target.
 /// 3. In the extension's Info.plist, set:
 ///    ```

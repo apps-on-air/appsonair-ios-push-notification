@@ -12,7 +12,7 @@ import UIKit
 // Session data is persisted in UserDefaults and included in the registration/update
 // payload sent to the backend on every session start.
 //
-// USAGE: Called once from AppsOnAirPush.initialize().
+// USAGE: Called once from AppPushService.initialize().
 
 @MainActor
 final class AppsOnAirSessionManager {
@@ -49,7 +49,7 @@ final class AppsOnAirSessionManager {
     // MARK: - Start
 
     /// Register for UIApplication lifecycle notifications and record the launch as a session.
-    /// Call once from AppsOnAirPush.initialize().
+    /// Call once from AppPushService.initialize().
     func start() {
         let center = NotificationCenter.default
 
@@ -74,7 +74,7 @@ final class AppsOnAirSessionManager {
         // configure() is called at launch — count as the first session start immediately.
         // (didBecomeActive will also fire shortly after, but start() may be called before it.)
         recordSessionStart()
-        AppsOnAirPush.log(
+        AppPushService.log(
             "SessionManager: started. sessionCount=\(sessionCount) " +
             "firstSession=\(firstSession.map { "\($0)" } ?? "nil")",
             level: .debug
@@ -92,14 +92,14 @@ final class AppsOnAirSessionManager {
         // Record first_session on very first app launch.
         if UserDefaults.standard.double(forKey: keyFirstSession) == 0 {
             UserDefaults.standard.set(now.timeIntervalSince1970, forKey: keyFirstSession)
-            AppsOnAirPush.log("SessionManager: first session recorded.", level: .info)
+            AppPushService.log("SessionManager: first session recorded.", level: .info)
         }
 
         UserDefaults.standard.set(now.timeIntervalSince1970, forKey: keyLastSession)
         let count = UserDefaults.standard.integer(forKey: keySessionCount) + 1
         UserDefaults.standard.set(count, forKey: keySessionCount)
 
-        AppsOnAirPush.log(
+        AppPushService.log(
             "SessionManager: session started. count=\(count)",
             level: .debug
         )
@@ -109,7 +109,7 @@ final class AppsOnAirSessionManager {
         // TODO: API — POST /sessions (see AppsOnAirEventQueue.sendSessionPing)
         AppsOnAirEventQueue.shared.enqueue(PushEvent(
             type: .sessionStart,
-            subscriptionId: AppsOnAirPush.subscriptionId
+            subscriptionId: AppPushService.subscriptionId
         ))
         AppsOnAirEventQueue.shared.flush()
     }
@@ -122,7 +122,7 @@ final class AppsOnAirSessionManager {
         let total = UserDefaults.standard.double(forKey: keyTotalTime) + duration
         UserDefaults.standard.set(total, forKey: keyTotalTime)
 
-        AppsOnAirPush.log(
+        AppPushService.log(
             "SessionManager: session ended. duration=\(Int(duration))s totalTime=\(Int(total))s",
             level: .debug
         )

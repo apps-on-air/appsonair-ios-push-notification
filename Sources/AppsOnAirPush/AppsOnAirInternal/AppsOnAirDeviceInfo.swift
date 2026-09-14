@@ -13,7 +13,7 @@ import UIKit
 //   app version, SDK version, device model/OS, permission status, rooted flag, test-device flag.
 //
 // AppsOnAir_Core.getDeviceInfo(_:completion:) is ASYNCHRONOUS, so prime() fetches
-// the snapshot once during AppsOnAirPush.initialize() and registrationPayload()
+// the snapshot once during AppPushService.initialize() and registrationPayload()
 // reads it synchronously. Before the first fetch returns, registrationPayload()
 // falls back to reading Bundle / UIDevice directly.
 //
@@ -29,17 +29,17 @@ enum AppsOnAirDeviceInfo {
     // MARK: - Static fields
 
     /// CocoaPods pod name / SPM product name — the key `SdkManager` looks up.
-    private static let sdkName = "AppsOnAirPush"
+    private static let sdkName = "AppPushService"
 
     /// Used only when the installed package ships no version metadata (e.g. SPM
     /// added as source with no resource bundle). Keep in sync with
-    /// `AppsOnAirPush.podspec` `s.version` on every release.
+    /// `AppPushService.podspec` `s.version` on every release.
     private static let fallbackSDKVersion = "0.0.1"
 
     /// SDK version, resolved at runtime from the installed package rather than
     /// hard-coded here:
-    ///   • CocoaPods — `CFBundleShortVersionString` of the `AppsOnAirPush` pod
-    ///     framework (`org.cocoapods.AppsOnAirPush`), i.e. the `.podspec` version.
+    ///   • CocoaPods — `CFBundleShortVersionString` of the `AppPushService` pod
+    ///     framework (`org.cocoapods.AppPushService`), i.e. the `.podspec` version.
     ///   • SPM — the SDK bundle's `CFBundleShortVersionString` when the package is
     ///     consumed as a framework / xcframework.
     /// Delegated to AppsOnAir_Core's `SdkManager`, which walks the same bundle
@@ -68,12 +68,12 @@ enum AppsOnAirDeviceInfo {
     private static var snapshot = Snapshot()
 
     /// Fetch the device/app metadata snapshot from AppsOnAir_Core.
-    /// Call once from AppsOnAirPush.initialize(); safe to call again to refresh.
+    /// Call once from AppPushService.initialize(); safe to call again to refresh.
     ///
     /// Note: Core's getDeviceInfo() sets `UIDevice.current.isBatteryMonitoringEnabled = true`
     /// as a side effect and delivers its completion on the main queue.
     static func prime() {
-        AppsOnAirPush.shared.core.getDeviceInfo { result in
+        AppPushService.shared.core.getDeviceInfo { result in
             let device = result["deviceInfo"] as? [String: Any] ?? [:]
             let app    = result["appInfo"]    as? [String: Any] ?? [:]
 
@@ -90,7 +90,7 @@ enum AppsOnAirDeviceInfo {
 
             Task { @MainActor in
                 snapshot = snap
-                AppsOnAirPush.log("DeviceInfo: AppsOnAir_Core metadata primed.", level: .verbose)
+                AppPushService.log("DeviceInfo: AppsOnAir_Core metadata primed.", level: .verbose)
             }
         }
     }
@@ -207,10 +207,10 @@ enum AppsOnAirDeviceInfo {
     /// Body (merge with AppsOnAirSessionManager.shared.asPayloadDict()):
     /// {
     ///   "app_id":           "<configured appId>",
-    ///   "device_id":        AppsOnAirPush.deviceId,   // AppsOnAir_Core per-install device id (AppsOnAirCoreServices.deviceId)
-    ///   "subscription_id":  AppsOnAirPush.subscriptionId,   // null on first registration
-    ///   "apns_token":       AppsOnAirPush.storage.getApnsToken(),
-    ///   "apns_environment": AppsOnAirPush.apnsEnvironment.rawValue,
+    ///   "device_id":        AppPushService.deviceId,   // AppsOnAir_Core per-install device id (AppsOnAirCoreServices.deviceId)
+    ///   "subscription_id":  AppPushService.subscriptionId,   // null on first registration
+    ///   "apns_token":       AppPushService.storage.getApnsToken(),
+    ///   "apns_environment": AppPushService.apnsEnvironment.rawValue,
     ///   "sdk_version":      "1.0.0",
     ///   "app_version":      "1.2.3",        // Core appInfo["releaseVersionNumber"]
     ///   "build_number":     42,             // Core appInfo["buildVersionNumber"], parsed to Int
@@ -231,7 +231,7 @@ enum AppsOnAirDeviceInfo {
     ///   "session_time_sec": 3600
     /// }
     /// Response: { "subscription_id": "<BE-generated UUID>" }
-    ///   → call AppsOnAirPush.setSubscriptionId(response["subscription_id"])
+    ///   → call AppPushService.setSubscriptionId(response["subscription_id"])
     static func registrationPayload() -> [String: Any] {
         let s = snapshot
         var payload: [String: Any] = [
@@ -243,23 +243,23 @@ enum AppsOnAirDeviceInfo {
             "os_type":           "ios",
             "os_version":        s.primed ? s.osVersion : UIDevice.current.systemVersion,
             "timezone":          s.primed ? s.timezone : TimeZone.current.identifier,
-            "device_id":         AppsOnAirPush.deviceId,
-            "language":          AppsOnAirPush.shared.language,
+            "device_id":         AppPushService.deviceId,
+            "language":          AppPushService.shared.language,
             "region_code":       s.regionCode,
             "is_simulator":      s.isSimulator,
             "first_install_time": s.firstInstallTime,
-            "is_opted_out":      AppsOnAirPush.shared.isOptedOut,
+            "is_opted_out":      AppPushService.shared.isOptedOut,
             "is_rooted":         isJailbroken,
-            "is_test_device":    AppsOnAirPush.isTestDevice,
-            "apns_environment":  AppsOnAirPush.apnsEnvironment.rawValue
+            "is_test_device":    AppPushService.isTestDevice,
+            "apns_environment":  AppPushService.apnsEnvironment.rawValue
         ]
         // Merge session fields (first_session, last_session, session_count, session_time_sec)
         AppsOnAirSessionManager.shared.asPayloadDict().forEach { payload[$0.key] = $0.value }
 
         if !s.primed {
-            AppsOnAirPush.log("DeviceInfo: payload assembled before AppsOnAir_Core primed — using Bundle/UIDevice fallbacks.", level: .warn)
+            AppPushService.log("DeviceInfo: payload assembled before AppsOnAir_Core primed — using Bundle/UIDevice fallbacks.", level: .warn)
         }
-        AppsOnAirPush.log("DeviceInfo: registration payload assembled.", level: .verbose)
+        AppPushService.log("DeviceInfo: registration payload assembled.", level: .verbose)
         return payload
     }
 }

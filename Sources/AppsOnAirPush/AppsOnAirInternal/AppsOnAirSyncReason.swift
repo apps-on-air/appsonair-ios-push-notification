@@ -4,7 +4,7 @@ import Foundation
 //
 // Diagnostic tag for *why* a backend subscription-sync call was triggered.
 //
-// Passed to the `…IfReady` orchestrators in `AppsOnAirPush`
+// Passed to the `…IfReady` orchestrators in `AppPushService`
 // (`registerSubscriptionIfReady`, `updateSubscriptionEnabledIfReady`,
 // `updatePushTokenIfRotated`, `syncExternalIdIfReady`, `syncOptInStateIfReady`,
 // `syncTagsIfReady`, `syncLanguageIfReady`)
