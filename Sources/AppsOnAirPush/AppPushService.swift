@@ -955,7 +955,9 @@ public final class AppPushService: NSObject {
         if #available(iOS 16.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(count) { error in
                 if let error {
-                    AppPushService.log("setBadgeCount failed: \(error.localizedDescription)", level: .error)
+                    Task { @MainActor in
+                        AppPushService.log("setBadgeCount failed: \(error.localizedDescription)", level: .error)
+                    }
                 }
             }
         } else {
