@@ -1,11 +1,11 @@
 import Foundation
 
-// MARK: - AppsOnAirPush.Debug namespace
+// MARK: - AppPushService.Debug namespace
 
-extension AppsOnAirPush {
+extension AppPushService {
 
     /// Debug logging configuration.
-    /// Call AppsOnAirPush.Debug.logLevel = .verbose before initialize() for full logs.
+    /// Call AppPushService.Debug.logLevel = .verbose before initialize() for full logs.
     /// Matches OneSignal.Debug namespace from OneSignal SDK v5.
     public enum Debug {
 

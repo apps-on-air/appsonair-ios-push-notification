@@ -3,9 +3,9 @@ import UserNotifications
 
 // MARK: - AOAPushExtension
 
-/// ObjC-callable static wrapper around the ``AppsOnAirPushExtension`` free-function API.
+/// ObjC-callable static wrapper around the ``AppPushServiceExtension`` free-function API.
 ///
-/// `AppsOnAirPushExtension` is a Swift `enum` (namespace) — not `@objc`, so
+/// `AppPushServiceExtension` is a Swift `enum` (namespace) — not `@objc`, so
 /// Objective-C cannot call it directly. This `NSObject` subclass (which is **not**
 /// `@MainActor`-isolated) exposes the same two entry points as `+` (class) methods
 /// that ObjC NSE implementations can call without triggering
@@ -46,7 +46,7 @@ public final class AOAPushExtension: NSObject {
 
     /// Processes text overrides, badge, delivery receipt, and media attachments for
     /// the given notification request, then invokes `contentHandler` exactly once
-    /// before returning — mirroring `AppsOnAirPushExtension.didReceiveNotificationExtensionRequest`.
+    /// before returning — mirroring `AppPushServiceExtension.didReceiveNotificationExtensionRequest`.
     @objc public static func didReceiveNotificationRequest(
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
@@ -55,20 +55,20 @@ public final class AOAPushExtension: NSObject {
             contentHandler(request.content)
             return
         }
-        AppsOnAirPushExtension.didReceiveNotificationExtensionRequest(
+        AppPushServiceExtension.didReceiveNotificationExtensionRequest(
             request, with: mutable, withContentHandler: contentHandler)
     }
 
     /// Applies text overrides to `bestAttemptContent` (skips attachment downloads —
     /// no time left) then calls `contentHandler` — mirroring
-    /// `AppsOnAirPushExtension.serviceExtensionTimeWillExpireRequest`.
+    /// `AppPushServiceExtension.serviceExtensionTimeWillExpireRequest`.
     @objc public static func serviceExtensionTimeWillExpireRequest(
         _ request: UNNotificationRequest,
         bestAttemptContent: UNMutableNotificationContent?,
         contentHandler: ((UNNotificationContent) -> Void)?
     ) {
         guard let content = bestAttemptContent, let handler = contentHandler else { return }
-        let result = AppsOnAirPushExtension.serviceExtensionTimeWillExpireRequest(
+        let result = AppPushServiceExtension.serviceExtensionTimeWillExpireRequest(
             request, with: content) ?? content
         handler(result)
     }

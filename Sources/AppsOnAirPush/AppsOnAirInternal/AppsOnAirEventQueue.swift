@@ -35,14 +35,14 @@ final class AppsOnAirEventQueue {
         // Cap at 100 events — drop oldest if exceeded (avoids unbounded growth on network outage)
         if queue.count >= 100 {
             let dropped = queue.removeFirst()
-            AppsOnAirPush.log(
+            AppPushService.log(
                 "EventQueue: queue full (100), dropped oldest. type=\(dropped.type.rawValue)",
                 level: .warn
             )
         }
         queue.append(event)
         save(queue)
-        AppsOnAirPush.log(
+        AppPushService.log(
             "EventQueue: enqueued \(event.type.rawValue). " +
             "notifId=\(event.notificationId ?? "nil") queueSize=\(queue.count)",
             level: .debug
@@ -56,7 +56,7 @@ final class AppsOnAirEventQueue {
     /// Skips if a flush is already in progress.
     func flush() {
         guard !isFlushing else {
-            AppsOnAirPush.log("EventQueue: flush already in progress, skipping.", level: .debug)
+            AppPushService.log("EventQueue: flush already in progress, skipping.", level: .debug)
             return
         }
         // Pull in any delivery receipts the Notification Service Extension wrote to the
@@ -67,7 +67,7 @@ final class AppsOnAirEventQueue {
         guard !queue.isEmpty else { return }
 
         isFlushing = true
-        AppsOnAirPush.log("EventQueue: flushing \(queue.count) pending event(s).", level: .info)
+        AppPushService.log("EventQueue: flushing \(queue.count) pending event(s).", level: .info)
 
         Task { @MainActor in
             defer { self.isFlushing = false }
@@ -77,13 +77,13 @@ final class AppsOnAirEventQueue {
                 let sent = await self.sendEvent(event)
                 if sent {
                     remaining.removeFirst()
-                    AppsOnAirPush.log(
+                    AppPushService.log(
                         "EventQueue: sent \(event.type.rawValue). remaining=\(remaining.count)",
                         level: .debug
                     )
                 } else {
                     // Stop on first failure — preserve ordering, retry on next flush.
-                    AppsOnAirPush.log(
+                    AppPushService.log(
                         "EventQueue: send failed, stopping flush. remaining=\(remaining.count)",
                         level: .warn
                     )
@@ -97,18 +97,18 @@ final class AppsOnAirEventQueue {
     // MARK: - Notification Service Extension bridge
 
     /// Key of the shared array the NSE appends delivery receipts to
-    /// (`AppsOnAirPushExtension` in the `AppsOnAirPushServiceExt` target). Kept in sync
+    /// (`AppPushServiceExtension` in the `AppsOnAirPushServiceExt` target). Kept in sync
     /// with that target manually — the two do not share code.
     private let nseQueueKey = "com.appsonair.push.nseEventQueue"
 
     /// Move delivery receipts written by the NSE process (App Group `UserDefaults`) into
     /// the main persistent queue, then clear the shared slot. Called at the top of `flush()`.
     private func drainSharedExtensionQueue() {
-        guard let groupId = AppsOnAirPush.shared._appGroupId,
+        guard let groupId = AppPushService.shared._appGroupId,
               let defaults = UserDefaults(suiteName: groupId) else { return }
         guard let raw = defaults.array(forKey: nseQueueKey) as? [[String: Any]], !raw.isEmpty else { return }
 
-        let fallbackDeviceId = AppsOnAirPush.deviceId
+        let fallbackDeviceId = AppPushService.deviceId
         for entry in raw {
             func nonEmpty(_ key: String) -> String? {
                 (entry[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -123,7 +123,7 @@ final class AppsOnAirEventQueue {
             ))
         }
         defaults.removeObject(forKey: nseQueueKey)
-        AppsOnAirPush.log(
+        AppPushService.log(
             "EventQueue: drained \(raw.count) NSE delivery receipt(s) from App Group '\(groupId)'.",
             level: .info
         )
@@ -140,7 +140,7 @@ final class AppsOnAirEventQueue {
         case .received:
             // Local foreground receipt — no backend call for free tier.
             // TODO: API — POST /events/received if BE wants foreground delivery tracking.
-            AppsOnAirPush.log(
+            AppPushService.log(
                 "EventQueue: 'received' is local-only (no API call). notifId=\(event.notificationId ?? "nil")",
                 level: .debug
             )
@@ -171,7 +171,7 @@ final class AppsOnAirEventQueue {
         // // On 5xx / network error → return false (retry on next flush)
         //
         let endpoint = event.actionId == nil ? "opened" : "clicked"
-        AppsOnAirPush.log(
+        AppPushService.log(
             "EventQueue: [TODO] POST /events/\(endpoint) " +
             "notifId=\(event.notificationId ?? "nil") " +
             "subscriptionId=\(event.subscriptionId ?? "nil") " +
@@ -200,7 +200,7 @@ final class AppsOnAirEventQueue {
         //
         // Typically enqueued by AppsOnAirNotificationServiceExtension writing to App Group storage,
         // then drained here on next main app foreground.
-        AppsOnAirPush.log(
+        AppPushService.log(
             "EventQueue: [TODO] POST /events/delivered notifId=\(event.notificationId ?? "nil")",
             level: .info
         )
@@ -227,7 +227,7 @@ final class AppsOnAirEventQueue {
         // AppsOnAirSessionManager.shared.asPayloadDict().forEach { body[$0.key] = $0.value }
         // AppsOnAirDeviceInfo.registrationPayload().forEach { body[$0.key] = $0.value }
         // request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        AppsOnAirPush.log(
+        AppPushService.log(
             "EventQueue: [TODO] POST /sessions deviceId=\(event.deviceId)",
             level: .info
         )

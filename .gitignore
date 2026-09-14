@@ -42,3 +42,4 @@ Pods/
 
 # ─────────────────────────────────
 IOS_SDK-INTERNALS.md
+validate_spm.sh

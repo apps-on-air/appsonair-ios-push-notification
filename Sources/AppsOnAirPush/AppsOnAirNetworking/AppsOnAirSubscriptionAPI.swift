@@ -5,7 +5,7 @@ import Foundation
 // Thin transport for the /v1/subscriptions endpoints. This type ONLY builds and
 // sends the request and hands the raw URLSession result back to the caller. It
 // does not interpret the response, retry, dedupe, or track state — the caller
-// (AppsOnAirPush) owns all of that.
+// (AppPushService) owns all of that.
 //
 //   POST <EnvironmentConfig.registerDevice>   (…/v1/subscriptions)
 //   Headers:
@@ -81,7 +81,7 @@ enum AppsOnAirSubscriptionAPI {
     static func registerDevice(
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let token = AppsOnAirPush.shared.storage.getApnsToken(), !token.isEmpty else {
+        guard let token = AppPushService.shared.storage.getApnsToken(), !token.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no push token — request not sent")
             completion(nil, nil, nil)
             return
@@ -103,13 +103,13 @@ enum AppsOnAirSubscriptionAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
         print("[AppsOnAirSubscriptionAPI] → POST \(url.absoluteString)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -135,7 +135,7 @@ enum AppsOnAirSubscriptionAPI {
         enabled: Bool,
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — PATCH not sent")
             completion(nil, nil, nil)
             return
@@ -158,13 +158,13 @@ enum AppsOnAirSubscriptionAPI {
         request.httpMethod = "PATCH"
         request.timeoutInterval = 20
         request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
         print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -190,12 +190,12 @@ enum AppsOnAirSubscriptionAPI {
     static func updatePushToken(
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let token = AppsOnAirPush.shared.storage.getApnsToken(), !token.isEmpty else {
+        guard let token = AppPushService.shared.storage.getApnsToken(), !token.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no push token — token PATCH not sent")
             completion(nil, nil, nil)
             return
         }
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — token PATCH not sent")
             completion(nil, nil, nil)
             return
@@ -218,13 +218,13 @@ enum AppsOnAirSubscriptionAPI {
         request.httpMethod = "PATCH"
         request.timeoutInterval = 20
         request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
         print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString) (token rotation)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -251,7 +251,7 @@ enum AppsOnAirSubscriptionAPI {
         _ externalId: String?,
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — external_id PATCH not sent")
             completion(nil, nil, nil)
             return
@@ -274,13 +274,13 @@ enum AppsOnAirSubscriptionAPI {
         request.httpMethod = "PATCH"
         request.timeoutInterval = 20
         request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
         print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString) (external_id)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -307,7 +307,7 @@ enum AppsOnAirSubscriptionAPI {
         optedOut: Bool,
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — opt-in/opt-out not sent")
             completion(nil, nil, nil)
             return
@@ -323,12 +323,12 @@ enum AppsOnAirSubscriptionAPI {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 20
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
 
         print("[AppsOnAirSubscriptionAPI] → POST \(url.absoluteString) (\(action))")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -353,7 +353,7 @@ enum AppsOnAirSubscriptionAPI {
         _ tags: [String: String],
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — tags POST not sent")
             completion(nil, nil, nil)
             return
@@ -381,13 +381,13 @@ enum AppsOnAirSubscriptionAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
         print("[AppsOnAirSubscriptionAPI] → POST \(url.absoluteString) (tags)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -412,7 +412,7 @@ enum AppsOnAirSubscriptionAPI {
         _ keys: [String],
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — tags/remove POST not sent")
             completion(nil, nil, nil)
             return
@@ -440,13 +440,13 @@ enum AppsOnAirSubscriptionAPI {
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
         print("[AppsOnAirSubscriptionAPI] → POST \(url.absoluteString) (tags/remove)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -470,7 +470,7 @@ enum AppsOnAirSubscriptionAPI {
     static func fetchTags(
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — tags GET not sent")
             completion(nil, nil, nil)
             return
@@ -485,12 +485,12 @@ enum AppsOnAirSubscriptionAPI {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 20
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
 
         print("[AppsOnAirSubscriptionAPI] → GET \(url.absoluteString) (tags)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -514,7 +514,7 @@ enum AppsOnAirSubscriptionAPI {
         _ language: String,
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
-        guard let subscriptionId = AppsOnAirPush.subscriptionId, !subscriptionId.isEmpty else {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
             print("[AppsOnAirSubscriptionAPI] no subscriptionId — language PATCH not sent")
             completion(nil, nil, nil)
             return
@@ -542,13 +542,13 @@ enum AppsOnAirSubscriptionAPI {
         request.httpMethod = "PATCH"
         request.timeoutInterval = 20
         request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
-        request.setValue(AppsOnAirPush.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
         print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString) (language)")
-        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppsOnAirPush.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -633,13 +633,13 @@ enum AppsOnAirSubscriptionAPI {
     static func subscriptionBody(pushToken: String) -> [String: Any] {
         let meta = AppsOnAirDeviceInfo.coreMetadata()
         return [
-            "app_id":           AppsOnAirPush.shared._appId,
-            "device_id":        AppsOnAirPush.deviceId,
+            "app_id":           AppPushService.shared._appId,
+            "device_id":        AppPushService.deviceId,
             "platform":         "ios",
             "push_token":       pushToken,
-            "apns_environment": AppsOnAirPush.apnsEnvironment.rawValue,   // "sandbox" | "production"
-            "enabled":          AppsOnAirPush.isOptedIn,                  // token && !optedOut && permission
-            "external_id":      AppsOnAirPush.shared.externalId ?? NSNull(),  // identified user, or null (anonymous)
+            "apns_environment": AppPushService.apnsEnvironment.rawValue,   // "sandbox" | "production"
+            "enabled":          AppPushService.isOptedIn,                  // token && !optedOut && permission
+            "external_id":      AppPushService.shared.externalId ?? NSNull(),  // identified user, or null (anonymous)
             "sdk_version":      AppsOnAirDeviceInfo.sdkVersion,
             "app_version":      meta.appVersion,
             "build_number":     meta.buildNumber,
@@ -647,7 +647,7 @@ enum AppsOnAirSubscriptionAPI {
             "os_version":       meta.osVersion,
             "timezone":         meta.timezone,
             "country":          meta.regionCode,                        // ISO region, e.g. "IN"
-            "language":         AppsOnAirPush.shared.language,
+            "language":         AppPushService.shared.language,
             "is_jailbroken":    AppsOnAirDeviceInfo.isJailbroken
         ]
     }
@@ -664,7 +664,7 @@ enum AppsOnAirSubscriptionAPI {
             "push_token":  pushToken,
             "os_version":  meta.osVersion,
             "app_version": meta.appVersion,
-            "language":    AppsOnAirPush.shared.language,
+            "language":    AppPushService.shared.language,
             "timezone":    meta.timezone
         ]
     }

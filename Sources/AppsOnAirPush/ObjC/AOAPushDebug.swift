@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - AOAPushDebug
 
-/// ObjC-compatible facade for AppsOnAirPush.Debug.
+/// ObjC-compatible facade for AppPushService.Debug.
 @objc(AOAPushDebug)
 public final class AOAPushDebug: NSObject {
 
@@ -12,8 +12,8 @@ public final class AOAPushDebug: NSObject {
     /// Set to AOALogLevelVerbose before `initialize` for full SDK logs.
     @objc
     public static var logLevel: AOALogLevel {
-        get { AppsOnAirPush.Debug.logLevel.aoaValue }
-        set { AppsOnAirPush.Debug.logLevel = LogLevel(newValue) }
+        get { AppPushService.Debug.logLevel.aoaValue }
+        set { AppPushService.Debug.logLevel = LogLevel(newValue) }
     }
 
 }

@@ -1,4 +1,4 @@
-# AppsOnAirPush — iOS SDK
+# AppPushService — iOS SDK
 
 APNs token registration, rich media attachments, badge management, background sync, and user targeting — all in one SDK. Works with UIKit, SwiftUI, and Objective-C.
 
@@ -56,23 +56,23 @@ Link the right product to each target:
 
 | Product | Add to |
 |---|---|
-| `AppsOnAirPush` | Main app target |
-| `AppsOnAirPushServiceExt` | Notification Service Extension target **only** |
-| `AppsOnAirPushContentExt` | Notification Content Extension target **only** |
+| `AppsOnAir-AppPush` | Main app target |
+| `AppsOnAir-AppPush-ServiceExt` | Notification Service Extension target **only** |
+| `AppsOnAir-AppPush-ContentExt` | Notification Content Extension target **only** |
 
 ### CocoaPods
 
 ```ruby
 target 'MyApp' do
-  pod 'AppsOnAirPush'
+  pod 'AppsOnAir-AppPush'
 end
 
 target 'MyNotificationServiceExtension' do
-  pod 'AppsOnAirPush/ServiceExtension'
+  pod 'AppsOnAir-AppPush/ServiceExtension'
 end
 
 target 'MyNotificationContentExtension' do
-  pod 'AppsOnAirPush/ContentExtension'
+  pod 'AppsOnAir-AppPush/ContentExtension'
 end
 ```
 
@@ -101,7 +101,7 @@ end
 ### Swift — UIKit AppDelegate
 
 ```swift
-import AppsOnAirPush
+import AppsOnAir_AppPush
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -111,11 +111,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
 
-        AppsOnAirPush.Debug.logLevel = .verbose       // set before initialize — captures startup logs
+        AppPushService.Debug.logLevel = .verbose       // set before initialize — captures startup logs
         AppsOnAirBackgroundSync.registerHandlers()     // must be called before any scene connects
-        AppsOnAirPush.initialize(debug: true)
-        AppsOnAirPush.setListener(self)
-        AppsOnAirPush.Notifications.requestPermission()
+        AppPushService.initialize(debug: true)
+        AppPushService.setListener(self)
+        AppPushService.Notifications.requestPermission()
         AppsOnAirBackgroundSync.scheduleIfNeeded()
         return true
     }
@@ -124,9 +124,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 extension AppDelegate: PushListener {
 
     func onAPNsTokenUpdated(token: String, environment: APNsEnvironment) {
-        // Send token + AppsOnAirPush.deviceId to your backend.
+        // Send token + AppPushService.deviceId to your backend.
         // When the backend returns a subscription ID:
-        // AppsOnAirPush.setSubscriptionId("sub_from_backend")
+        // AppPushService.setSubscriptionId("sub_from_backend")
     }
 
     func onNotificationReceived(notification: PushNotification) {
@@ -147,7 +147,7 @@ extension AppDelegate: PushListener {
 
 ```swift
 import SwiftUI
-import AppsOnAirPush
+import AppsOnAir_AppPush
 
 @main
 struct MyApp: App {
@@ -166,9 +166,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         AppsOnAirBackgroundSync.registerHandlers()
-        AppsOnAirPush.initialize(debug: true)
-        AppsOnAirPush.setListener(self)
-        AppsOnAirPush.Notifications.requestPermission()
+        AppPushService.initialize(debug: true)
+        AppPushService.setListener(self)
+        AppPushService.Notifications.requestPermission()
         AppsOnAirBackgroundSync.scheduleIfNeeded()
         return true
     }
@@ -187,7 +187,7 @@ extension AppDelegate: PushListener {
 ```objc
 // AppDelegate.h
 #import <UIKit/UIKit.h>
-@import AppsOnAirPush;
+@import AppsOnAir_AppPush;
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate, AOAPushListener>
 @property (strong, nonatomic) UIWindow *window;
@@ -225,7 +225,7 @@ Set the log level **before** `initialize()` to see startup output.
 
 ```swift
 // Swift
-AppsOnAirPush.Debug.logLevel = .verbose
+AppPushService.Debug.logLevel = .verbose
 ```
 
 ```objc
@@ -250,8 +250,8 @@ Call `login` when your user signs in and `logout` when they sign out. Tags, alia
 
 ```swift
 // Swift
-AppsOnAirPush.login("user_12345")   // call when your user signs in
-AppsOnAirPush.logout()              // call on sign-out — clears tags and aliases
+AppPushService.login("user_12345")   // call when your user signs in
+AppPushService.logout()              // call on sign-out — clears tags and aliases
 ```
 
 ```objc
@@ -272,16 +272,16 @@ Key-value strings attached to a user for audience segmentation — `plan`, `regi
 
 ```swift
 // Swift
-AppsOnAirPush.User.addTag(key: "plan", value: "premium")
-AppsOnAirPush.User.addTags(["plan": "premium", "region": "us"])
-AppsOnAirPush.User.removeTag("plan")
-AppsOnAirPush.User.removeTags(["plan", "region"])
+AppPushService.User.addTag(key: "plan", value: "premium")
+AppPushService.User.addTags(["plan": "premium", "region": "us"])
+AppPushService.User.removeTag("plan")
+AppPushService.User.removeTags(["plan", "region"])
 
 // Read from local cache (synchronous)
-let tags = AppsOnAirPush.User.getTags()
+let tags = AppPushService.User.getTags()
 
 // Fetch fresh copy from backend (async)
-AppsOnAirPush.User.getTags { tags in
+AppPushService.User.getTags { tags in
     print(tags)
 }
 ```
@@ -308,8 +308,8 @@ Override the device locale for this user. Useful when your backend sends localis
 
 ```swift
 // Swift
-AppsOnAirPush.User.setLanguage("fr")  // ISO 639-1 code
-let lang = AppsOnAirPush.User.language
+AppPushService.User.setLanguage("fr")  // ISO 639-1 code
+let lang = AppPushService.User.language
 ```
 
 ```objc
@@ -324,10 +324,10 @@ Map this device to an ID in an external system — CRM, helpdesk, analytics, etc
 
 ```swift
 // Swift
-AppsOnAirPush.User.addAlias(label: "crm_id", id: "CRM-9876")
-AppsOnAirPush.User.addAliases(["crm_id": "CRM-9876", "hubspot_id": "HS-42"])
-AppsOnAirPush.User.removeAlias("crm_id")
-AppsOnAirPush.User.removeAliases(["crm_id", "hubspot_id"])
+AppPushService.User.addAlias(label: "crm_id", id: "CRM-9876")
+AppPushService.User.addAliases(["crm_id": "CRM-9876", "hubspot_id": "HS-42"])
+AppPushService.User.removeAlias("crm_id")
+AppPushService.User.removeAliases(["crm_id", "hubspot_id"])
 ```
 
 ```objc
@@ -344,8 +344,8 @@ Associate an email address with this user record. Multiple addresses can be adde
 
 ```swift
 // Swift
-AppsOnAirPush.User.addEmail("user@example.com")
-AppsOnAirPush.User.removeEmail("user@example.com")
+AppPushService.User.addEmail("user@example.com")
+AppPushService.User.removeEmail("user@example.com")
 ```
 
 ```objc
@@ -360,12 +360,12 @@ Lets the user stop receiving pushes without revoking OS-level permission. The AP
 
 ```swift
 // Swift
-AppsOnAirPush.User.pushSubscription.optOut()   // stop receiving pushes (token preserved)
-AppsOnAirPush.User.pushSubscription.optIn()
+AppPushService.User.pushSubscription.optOut()   // stop receiving pushes (token preserved)
+AppPushService.User.pushSubscription.optIn()
 
-let isOptedIn = AppsOnAirPush.User.pushSubscription.optedIn
-let token     = AppsOnAirPush.User.pushSubscription.token
-let subId     = AppsOnAirPush.User.pushSubscription.id
+let isOptedIn = AppPushService.User.pushSubscription.optedIn
+let token     = AppPushService.User.pushSubscription.token
+let subId     = AppPushService.User.pushSubscription.id
 ```
 
 ```objc
@@ -386,16 +386,16 @@ React to subscription state changes (opt-in/out, token rotation) and login/logou
 // Swift
 
 // Observe opt-in / token changes
-AppsOnAirPush.User.pushSubscription.addObserver(self)
-AppsOnAirPush.User.pushSubscription.removeObserver(self)
+AppPushService.User.pushSubscription.addObserver(self)
+AppPushService.User.pushSubscription.removeObserver(self)
 
 func onPushSubscriptionDidChange(state: PushSubscriptionChangedState) {
     print("optedIn:", state.current.optedIn)
 }
 
 // Observe login / logout
-AppsOnAirPush.User.addObserver(self)
-AppsOnAirPush.User.removeObserver(self)
+AppPushService.User.addObserver(self)
+AppPushService.User.removeObserver(self)
 
 func onUserStateDidChange(state: UserChangedState) {
     print(state.current.externalId ?? "anonymous")
@@ -432,16 +432,16 @@ Handles OS permission requests, foreground display behaviour, click/action callb
 
 ```swift
 // Swift
-AppsOnAirPush.Notifications.requestPermission()
-AppsOnAirPush.Notifications.requestPermission(fallbackToSettings: true) // opens Settings if denied
-AppsOnAirPush.Notifications.registerForProvisionalAuthorization()       // iOS 12+ quiet notifications
+AppPushService.Notifications.requestPermission()
+AppPushService.Notifications.requestPermission(fallbackToSettings: true) // opens Settings if denied
+AppPushService.Notifications.registerForProvisionalAuthorization()       // iOS 12+ quiet notifications
 
-let granted = AppsOnAirPush.Notifications.permission           // Bool, synchronous
-let status  = AppsOnAirPush.Notifications.permissionNative     // enum — notDetermined / denied / authorized / provisional / ephemeral
-let canAsk  = AppsOnAirPush.Notifications.canRequestPermission // true when dialog would appear
+let granted = AppPushService.Notifications.permission           // Bool, synchronous
+let status  = AppPushService.Notifications.permissionNative     // enum — notDetermined / denied / authorized / provisional / ephemeral
+let canAsk  = AppPushService.Notifications.canRequestPermission // true when dialog would appear
 
 // Force re-read from the OS
-let fresh = await AppsOnAirPush.Notifications.refreshPermission()
+let fresh = await AppPushService.Notifications.refreshPermission()
 ```
 
 ```objc
@@ -465,8 +465,8 @@ Get notified when the user changes notification permission in Settings. Useful f
 
 ```swift
 // Swift
-AppsOnAirPush.Notifications.addPermissionObserver(self)
-AppsOnAirPush.Notifications.removePermissionObserver(self)
+AppPushService.Notifications.addPermissionObserver(self)
+AppPushService.Notifications.removePermissionObserver(self)
 
 func onNotificationPermissionDidChange(_ permission: Bool) { }
 ```
@@ -485,7 +485,7 @@ By default the SDK shows banners even when the app is in the foreground. Add a l
 
 ```swift
 // Swift
-AppsOnAirPush.Notifications.addForegroundLifecycleListener(self)
+AppPushService.Notifications.addForegroundLifecycleListener(self)
 
 func onWillDisplay(event: NotificationWillDisplayEvent) {
     // Call preventDefault() to suppress the banner; omit to show it normally
@@ -508,7 +508,7 @@ Fired when the user taps a notification or one of its action buttons. Use `event
 
 ```swift
 // Swift
-AppsOnAirPush.Notifications.addClickListener(self)
+AppPushService.Notifications.addClickListener(self)
 
 func onClick(event: NotificationClickEvent) {
     print(event.result.actionId ?? "body tap")
@@ -533,9 +533,9 @@ Remove delivered notifications from the tray — all at once or by identifier.
 
 ```swift
 // Swift
-AppsOnAirPush.Notifications.clearAllNotifications()
-AppsOnAirPush.Notifications.removeNotification(withIdentifier: "abc")
-AppsOnAirPush.Notifications.removeNotifications(withIdentifiers: ["a", "b"])
+AppPushService.Notifications.clearAllNotifications()
+AppPushService.Notifications.removeNotification(withIdentifier: "abc")
+AppPushService.Notifications.removeNotifications(withIdentifiers: ["a", "b"])
 ```
 
 ```objc
@@ -553,13 +553,13 @@ The SDK tracks a **running total** — each push increments the count rather tha
 
 ```swift
 // Swift
-AppsOnAirPush.setBadgeCount(5)
-AppsOnAirPush.incrementBadgeCount(by: 1)   // delta can be negative
-AppsOnAirPush.clearBadgeCount()
-let n = AppsOnAirPush.badgeCount
+AppPushService.setBadgeCount(5)
+AppPushService.incrementBadgeCount(by: 1)   // delta can be negative
+AppPushService.clearBadgeCount()
+let n = AppPushService.badgeCount
 
 // Auto-clear on foreground (default = true)
-AppsOnAirPush.autoClearBadgeOnForeground = false  // switch to count-down mode
+AppPushService.autoClearBadgeOnForeground = false  // switch to count-down mode
 ```
 
 ```objc
@@ -589,10 +589,10 @@ Set `consentRequired = true` **before** `initialize()` if your app needs explici
 
 ```swift
 // Swift — set BEFORE initialize()
-AppsOnAirPush.consentRequired = true
-AppsOnAirPush.initialize()
+AppPushService.consentRequired = true
+AppPushService.initialize()
 // After the user accepts your consent dialog:
-AppsOnAirPush.consentGiven = true
+AppPushService.consentGiven = true
 ```
 
 ```objc
@@ -610,7 +610,7 @@ A silent push (`content-available: 1`, no alert) wakes the app in the background
 
 ```swift
 // Swift
-AppsOnAirPush.onSilentPushReceived = { userInfo, completion in
+AppPushService.onSilentPushReceived = { userInfo, completion in
     // run lightweight background work (≤ 30 s)
     completion(.newData)
 }
@@ -633,25 +633,25 @@ Swizzling is **on by default** — the SDK hooks APNs token and notification del
 
 ```swift
 // Swift — swizzle: false
-AppsOnAirPush.initialize(swizzle: false)
+AppPushService.initialize(swizzle: false)
 
 func application(_ application: UIApplication,
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-    AppsOnAirPush.handleAPNsToken(deviceToken)
+    AppPushService.handleAPNsToken(deviceToken)
 }
 func application(_ application: UIApplication,
     didFailToRegisterForRemoteNotificationsWithError error: Error) {
-    AppsOnAirPush.handleAPNsRegistrationError(error)
+    AppPushService.handleAPNsRegistrationError(error)
 }
 func userNotificationCenter(_ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler handler: @escaping (UNNotificationPresentationOptions) -> Void) {
-    handler(AppsOnAirPush.handleWillPresent(notification: notification))
+    handler(AppPushService.handleWillPresent(notification: notification))
 }
 func userNotificationCenter(_ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse,
     withCompletionHandler handler: @escaping () -> Void) {
-    AppsOnAirPush.handleDidReceive(response: response)
+    AppPushService.handleDidReceive(response: response)
     handler()
 }
 ```
@@ -706,7 +706,7 @@ If you name the group following the convention `group.<main-bundle-id>.appsonair
 File → New Target → Notification Service Extension.
 Add the same App Group capability to the NSE target.
 
-**3. Link `AppsOnAirPushServiceExt` to the NSE target only**
+**3. Link `AppsOnAir-AppPush-ServiceExt` to the NSE target only**
 
 Never link it to the main app — UIKit is unavailable in an NSE process.
 
@@ -725,7 +725,7 @@ Without this iOS never invokes the NSE.
 ### Swift — subclass
 
 ```swift
-import AppsOnAirPushServiceExt
+import AppsOnAir_AppPush_ServiceExt
 
 class NotificationService: AppsOnAirNotificationServiceExtension {
     // No code required — media download, text overrides, badge, delivery receipt are automatic.
@@ -741,7 +741,7 @@ class NotificationService: AppsOnAirNotificationServiceExtension {
 ### Swift — free functions (if you already have your own NSE subclass)
 
 ```swift
-import AppsOnAirPushServiceExt
+import AppsOnAir_AppPush_ServiceExt
 
 class NotificationService: UNNotificationServiceExtension {
 
@@ -749,7 +749,7 @@ class NotificationService: UNNotificationServiceExtension {
         withContentHandler handler: @escaping (UNNotificationContent) -> Void) {
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent
         else { return handler(request.content) }
-        AppsOnAirPushExtension.didReceiveNotificationExtensionRequest(
+        AppPushServiceExtension.didReceiveNotificationExtensionRequest(
             request, with: content, withContentHandler: handler)
     }
 
@@ -771,7 +771,7 @@ class NotificationService: UNNotificationServiceExtension {
 
 // NotificationService.m
 #import "NotificationService.h"
-@import AppsOnAirPushServiceExt;
+@import AppsOnAir_AppPush_ServiceExt;
 
 @interface NotificationService ()
 @property (nonatomic, strong) UNNotificationRequest            *receivedRequest;
@@ -807,12 +807,12 @@ class NotificationService: UNNotificationServiceExtension {
 
 ## Notification Content Extension
 
-Replaces the expanded (long-press) notification view with custom UI. `AppsOnAirPushContentExt` provides `AppsOnAirContentViewController` — full-width image, bold title, multiline body.
+Replaces the expanded (long-press) notification view with custom UI. `AppsOnAir-AppPush-ContentExt` provides `AppsOnAirContentViewController` — full-width image, bold title, multiline body.
 
 ### Setup
 
 1. File → New Target → Notification Content Extension
-2. Link `AppsOnAirPushContentExt` to the CE target only
+2. Link `AppsOnAir-AppPush-ContentExt` to the CE target only
 3. Configure Info.plist:
 
 ```xml
@@ -843,7 +843,7 @@ Set `NSExtensionPrincipalClass` to `AppsOnAirContentViewController` in Info.plis
 ### Swift — subclass for custom behaviour
 
 ```swift
-import AppsOnAirPushContentExt
+import AppsOnAir_AppPush_ContentExt
 
 class MyContentVC: AppsOnAirContentViewController {
     override func configure(with notification: UNNotification) {
@@ -995,71 +995,71 @@ The custom keys your backend sends alongside the standard `aps` dictionary. `not
 
 Every public method and property. Swift and ObjC side by side.
 
-### `AppsOnAirPush` / `AOAPush`
+### `AppPushService` / `AOAPush`
 
 | Method / Property | Swift | Objective-C |
 |---|---|---|
-| Initialize | `AppsOnAirPush.initialize(debug:swizzle:)` | `[AOAPush initializeWithDebug:swizzle:]` |
-| Set Listener | `AppsOnAirPush.setListener(_:)` | `[AOAPush setListener:]` |
-| Device ID | `AppsOnAirPush.deviceId` | `[AOAPush deviceId]` |
-| Subscription ID | `AppsOnAirPush.subscriptionId` | `[AOAPush subscriptionId]` |
-| Set Subscription ID | `AppsOnAirPush.setSubscriptionId(_:)` | `[AOAPush setSubscriptionId:]` |
-| Test Device | `AppsOnAirPush.isTestDevice` | `[AOAPush isTestDevice]` |
-| APNs Environment | `AppsOnAirPush.apnsEnvironment` | `[AOAPush apnsEnvironment]` |
-| Auto-register APNs | `AppsOnAirPush.autoRegisterForRemoteNotifications` | `[AOAPush setAutoRegisterForRemoteNotifications:]` |
-| Request Permission | `AppsOnAirPush.requestPermission()` | `[AOAPush requestPermission]` |
-| Is Permission Granted | `await AppsOnAirPush.isPermissionGranted()` | `[AOAPush isPermissionGrantedWithCompletion:]` |
-| Login | `AppsOnAirPush.login(_:)` | `[AOAPush login:]` |
-| Logout | `AppsOnAirPush.logout()` | `[AOAPush logout]` |
-| Consent Required | `AppsOnAirPush.consentRequired` | `[AOAPush setConsentRequired:]` |
-| Consent Given | `AppsOnAirPush.consentGiven` | `[AOAPush setConsentGiven:]` |
-| Silent Push | `AppsOnAirPush.onSilentPushReceived` | `[AOAPush handleSilentPush:fetchCompletionHandler:]` |
-| Clear Notifications | `AppsOnAirPush.clearAllNotifications()` | `[AOAPush clearAllNotifications]` |
-| Badge Count | `AppsOnAirPush.badgeCount` | `[AOAPush badgeCount]` |
-| Set Badge | `AppsOnAirPush.setBadgeCount(_:)` | `[AOAPush setBadgeCount:]` |
-| Increment Badge | `AppsOnAirPush.incrementBadgeCount(by:)` | `[AOAPush incrementBadgeCountBy:]` |
-| Clear Badge | `AppsOnAirPush.clearBadgeCount()` | `[AOAPush clearBadgeCount]` |
-| Auto-clear Badge | `AppsOnAirPush.autoClearBadgeOnForeground` | `[AOAPush setAutoClearBadgeOnForeground:]` |
-| APNs Token (manual) | `AppsOnAirPush.handleAPNsToken(_:)` | `[AOAPush handleAPNsToken:]` |
-| APNs Error (manual) | `AppsOnAirPush.handleAPNsRegistrationError(_:)` | `[AOAPush handleAPNsRegistrationError:]` |
-| Will Present (manual) | `AppsOnAirPush.handleWillPresent(notification:)` | `[AOAPush handleWillPresentNotification:]` |
-| Did Receive (manual) | `AppsOnAirPush.handleDidReceive(response:)` | `[AOAPush handleDidReceiveResponse:]` |
+| Initialize | `AppPushService.initialize(debug:swizzle:)` | `[AOAPush initializeWithDebug:swizzle:]` |
+| Set Listener | `AppPushService.setListener(_:)` | `[AOAPush setListener:]` |
+| Device ID | `AppPushService.deviceId` | `[AOAPush deviceId]` |
+| Subscription ID | `AppPushService.subscriptionId` | `[AOAPush subscriptionId]` |
+| Set Subscription ID | `AppPushService.setSubscriptionId(_:)` | `[AOAPush setSubscriptionId:]` |
+| Test Device | `AppPushService.isTestDevice` | `[AOAPush isTestDevice]` |
+| APNs Environment | `AppPushService.apnsEnvironment` | `[AOAPush apnsEnvironment]` |
+| Auto-register APNs | `AppPushService.autoRegisterForRemoteNotifications` | `[AOAPush setAutoRegisterForRemoteNotifications:]` |
+| Request Permission | `AppPushService.requestPermission()` | `[AOAPush requestPermission]` |
+| Is Permission Granted | `await AppPushService.isPermissionGranted()` | `[AOAPush isPermissionGrantedWithCompletion:]` |
+| Login | `AppPushService.login(_:)` | `[AOAPush login:]` |
+| Logout | `AppPushService.logout()` | `[AOAPush logout]` |
+| Consent Required | `AppPushService.consentRequired` | `[AOAPush setConsentRequired:]` |
+| Consent Given | `AppPushService.consentGiven` | `[AOAPush setConsentGiven:]` |
+| Silent Push | `AppPushService.onSilentPushReceived` | `[AOAPush handleSilentPush:fetchCompletionHandler:]` |
+| Clear Notifications | `AppPushService.clearAllNotifications()` | `[AOAPush clearAllNotifications]` |
+| Badge Count | `AppPushService.badgeCount` | `[AOAPush badgeCount]` |
+| Set Badge | `AppPushService.setBadgeCount(_:)` | `[AOAPush setBadgeCount:]` |
+| Increment Badge | `AppPushService.incrementBadgeCount(by:)` | `[AOAPush incrementBadgeCountBy:]` |
+| Clear Badge | `AppPushService.clearBadgeCount()` | `[AOAPush clearBadgeCount]` |
+| Auto-clear Badge | `AppPushService.autoClearBadgeOnForeground` | `[AOAPush setAutoClearBadgeOnForeground:]` |
+| APNs Token (manual) | `AppPushService.handleAPNsToken(_:)` | `[AOAPush handleAPNsToken:]` |
+| APNs Error (manual) | `AppPushService.handleAPNsRegistrationError(_:)` | `[AOAPush handleAPNsRegistrationError:]` |
+| Will Present (manual) | `AppPushService.handleWillPresent(notification:)` | `[AOAPush handleWillPresentNotification:]` |
+| Did Receive (manual) | `AppPushService.handleDidReceive(response:)` | `[AOAPush handleDidReceiveResponse:]` |
 
-### `AppsOnAirPush.Debug` / `AOAPushDebug`
+### `AppPushService.Debug` / `AOAPushDebug`
 
 | | Swift | Objective-C |
 |---|---|---|
-| Log Level | `AppsOnAirPush.Debug.logLevel` | `[AOAPushDebug logLevel]` / `[AOAPushDebug setLogLevel:]` |
+| Log Level | `AppPushService.Debug.logLevel` | `[AOAPushDebug logLevel]` / `[AOAPushDebug setLogLevel:]` |
 
-### `AppsOnAirPush.User` / `AOAPushUser`
+### `AppPushService.User` / `AOAPushUser`
 
 | Method / Property | Swift | Objective-C |
 |---|---|---|
-| AppsOnAir ID | `AppsOnAirPush.User.appsOnAirId` | `[AOAPushUser appsOnAirId]` |
-| External ID | `AppsOnAirPush.User.externalId` | `[AOAPushUser externalId]` |
-| Language | `AppsOnAirPush.User.language` | `[AOAPushUser language]` |
-| Set Language | `AppsOnAirPush.User.setLanguage(_:)` | `[AOAPushUser setLanguage:]` |
-| Add Tag | `AppsOnAirPush.User.addTag(key:value:)` | `[AOAPushUser addTagWithKey:value:]` |
-| Add Tags | `AppsOnAirPush.User.addTags(_:)` | `[AOAPushUser addTags:]` |
-| Remove Tag | `AppsOnAirPush.User.removeTag(_:)` | `[AOAPushUser removeTag:]` |
-| Remove Tags | `AppsOnAirPush.User.removeTags(_:)` | `[AOAPushUser removeTags:]` |
-| Get Tags (cache) | `AppsOnAirPush.User.getTags()` | `[AOAPushUser getTags]` |
-| Get Tags (backend) | `AppsOnAirPush.User.getTags { … }` | `[AOAPushUser fetchTagsFromBackendWithCompletion:]` |
-| Add Alias | `AppsOnAirPush.User.addAlias(label:id:)` | `[AOAPushUser addAliasWithLabel:id:]` |
-| Add Aliases | `AppsOnAirPush.User.addAliases(_:)` | `[AOAPushUser addAliases:]` |
-| Remove Alias | `AppsOnAirPush.User.removeAlias(_:)` | `[AOAPushUser removeAlias:]` |
-| Remove Aliases | `AppsOnAirPush.User.removeAliases(_:)` | `[AOAPushUser removeAliases:]` |
-| Add Email | `AppsOnAirPush.User.addEmail(_:)` | `[AOAPushUser addEmail:]` |
-| Remove Email | `AppsOnAirPush.User.removeEmail(_:)` | `[AOAPushUser removeEmail:]` |
-| Opt Out | `AppsOnAirPush.User.pushSubscription.optOut()` | `[AOAPushUser optOut]` |
-| Opt In | `AppsOnAirPush.User.pushSubscription.optIn()` | `[AOAPushUser optIn]` |
-| Opted In | `AppsOnAirPush.User.pushSubscription.optedIn` | `[AOAPushUser pushSubscriptionOptedIn]` |
-| Sub Token | `AppsOnAirPush.User.pushSubscription.token` | `[AOAPushUser pushSubscriptionToken]` |
-| Sub ID | `AppsOnAirPush.User.pushSubscription.id` | `[AOAPushUser pushSubscriptionId]` |
+| AppsOnAir ID | `AppPushService.User.appsOnAirId` | `[AOAPushUser appsOnAirId]` |
+| External ID | `AppPushService.User.externalId` | `[AOAPushUser externalId]` |
+| Language | `AppPushService.User.language` | `[AOAPushUser language]` |
+| Set Language | `AppPushService.User.setLanguage(_:)` | `[AOAPushUser setLanguage:]` |
+| Add Tag | `AppPushService.User.addTag(key:value:)` | `[AOAPushUser addTagWithKey:value:]` |
+| Add Tags | `AppPushService.User.addTags(_:)` | `[AOAPushUser addTags:]` |
+| Remove Tag | `AppPushService.User.removeTag(_:)` | `[AOAPushUser removeTag:]` |
+| Remove Tags | `AppPushService.User.removeTags(_:)` | `[AOAPushUser removeTags:]` |
+| Get Tags (cache) | `AppPushService.User.getTags()` | `[AOAPushUser getTags]` |
+| Get Tags (backend) | `AppPushService.User.getTags { … }` | `[AOAPushUser fetchTagsFromBackendWithCompletion:]` |
+| Add Alias | `AppPushService.User.addAlias(label:id:)` | `[AOAPushUser addAliasWithLabel:id:]` |
+| Add Aliases | `AppPushService.User.addAliases(_:)` | `[AOAPushUser addAliases:]` |
+| Remove Alias | `AppPushService.User.removeAlias(_:)` | `[AOAPushUser removeAlias:]` |
+| Remove Aliases | `AppPushService.User.removeAliases(_:)` | `[AOAPushUser removeAliases:]` |
+| Add Email | `AppPushService.User.addEmail(_:)` | `[AOAPushUser addEmail:]` |
+| Remove Email | `AppPushService.User.removeEmail(_:)` | `[AOAPushUser removeEmail:]` |
+| Opt Out | `AppPushService.User.pushSubscription.optOut()` | `[AOAPushUser optOut]` |
+| Opt In | `AppPushService.User.pushSubscription.optIn()` | `[AOAPushUser optIn]` |
+| Opted In | `AppPushService.User.pushSubscription.optedIn` | `[AOAPushUser pushSubscriptionOptedIn]` |
+| Sub Token | `AppPushService.User.pushSubscription.token` | `[AOAPushUser pushSubscriptionToken]` |
+| Sub ID | `AppPushService.User.pushSubscription.id` | `[AOAPushUser pushSubscriptionId]` |
 | Sub Observer | `pushSubscription.addObserver(_:)` | `[AOAPushUser addPushSubscriptionObserver:]` |
-| User Observer | `AppsOnAirPush.User.addObserver(_:)` | `[AOAPushUser addUserStateObserver:]` |
+| User Observer | `AppPushService.User.addObserver(_:)` | `[AOAPushUser addUserStateObserver:]` |
 
-### `AppsOnAirPush.Notifications` / `AOAPushNotifications`
+### `AppPushService.Notifications` / `AOAPushNotifications`
 
 | Method / Property | Swift | Objective-C |
 |---|---|---|
@@ -1085,20 +1085,20 @@ Every public method and property. Swift and ObjC side by side.
 | Cancel | `AppsOnAirBackgroundSync.cancelPending()` | `[AOAPushBackgroundSync cancelPending]` |
 | Task ID | `AppsOnAirBackgroundSync.taskIdentifier` | `[AOAPushBackgroundSync taskIdentifier]` |
 
-### NSE helper — `AppsOnAirPushExtension` / `AOAPushExtension`
+### NSE helper — `AppPushServiceExtension` / `AOAPushExtension`
 
 Use inside a Notification Service Extension target only.
 
 | Method | Swift | Objective-C |
 |---|---|---|
-| Did Receive | `AppsOnAirPushExtension.didReceiveNotificationExtensionRequest(_:with:withContentHandler:)` | `[AOAPushExtension didReceiveNotificationRequest:withContentHandler:]` |
-| Time Will Expire | `AppsOnAirPushExtension.serviceExtensionTimeWillExpireRequest(_:with:)` | `[AOAPushExtension serviceExtensionTimeWillExpireRequest:bestAttemptContent:contentHandler:]` |
+| Did Receive | `AppPushServiceExtension.didReceiveNotificationExtensionRequest(_:with:withContentHandler:)` | `[AOAPushExtension didReceiveNotificationRequest:withContentHandler:]` |
+| Time Will Expire | `AppPushServiceExtension.serviceExtensionTimeWillExpireRequest(_:with:)` | `[AOAPushExtension serviceExtensionTimeWillExpireRequest:bestAttemptContent:contentHandler:]` |
 
 ---
 
 ## PushListener Protocol
 
-Assign a listener via `AppsOnAirPush.setListener(_:)` to receive APNs token updates, foreground notifications, opens, and errors. In ObjC all four methods are `@optional`; in Swift implement all four (empty body is fine).
+Assign a listener via `AppPushService.setListener(_:)` to receive APNs token updates, foreground notifications, opens, and errors. In ObjC all four methods are `@optional`; in Swift implement all four (empty body is fine).
 
 ### Swift
 ```swift
@@ -1128,7 +1128,7 @@ In Swift all four must be implemented (empty body is fine). In ObjC all four are
 
 ## Error Codes
 
-Errors come through `onError` in `PushListener`. Swift gets a `PushError` enum; ObjC gets an `NSError` with domain `AppsOnAirPushErrorDomain`.
+Errors come through `onError` in `PushListener`. Swift gets a `PushError` enum; ObjC gets an `NSError` with domain `AppPushServiceErrorDomain`.
 
 | Code | Meaning | Fix |
 |---|---|---|
@@ -1151,7 +1151,7 @@ This mock token works with all other SDK calls so you can test your registration
 
 ## Troubleshooting
 
-Most issues are a missing capability, wrong Info.plist key, or wrong call order. Enable verbose logging first — `AppsOnAirPush.Debug.logLevel = .verbose` — then check below.
+Most issues are a missing capability, wrong Info.plist key, or wrong call order. Enable verbose logging first — `AppPushService.Debug.logLevel = .verbose` — then check below.
 
 | Problem | Likely cause | Fix |
 |---|---|---|
@@ -1192,7 +1192,7 @@ The device-side SDK is complete. The HTTP calls that report data back to AppsOnA
 
 First internal alpha release. Not for production use.
 
-**Core SDK (`AppsOnAirPush`)**
+**Core SDK (`AppPushService`)**
 - `initialize(debug:swizzle:)` — SDK entry point with optional debug mode and method swizzling
 - `requestPermission()` and `requestPermission(fallbackToSettings:)` — UNUserNotificationCenter permission flow
 - `registerForProvisionalAuthorization()` — provisional auth (iOS 12+, no prompt required)
@@ -1202,7 +1202,7 @@ First internal alpha release. Not for production use.
 - `isTestDevice`, `consentRequired`, `consentGiven` — device flags
 - `isPermissionGranted(completion:)` — async permission check
 
-**User Namespace (`AppsOnAirPush.User`)**
+**User Namespace (`AppPushService.User`)**
 - Tags — `addTag`, `addTags`, `removeTag`, `removeTags`, `getTags` (local), `getTags(completion:)` (backend fetch)
 - Aliases — `addAlias`, `addAliases`, `removeAlias`, `removeAliases`
 - Email — `addEmail`, `removeEmail`
@@ -1210,7 +1210,7 @@ First internal alpha release. Not for production use.
 - Push subscription — `optIn()`, `optOut()`, `.optedIn`, `.token`, `.id`
 - Observers — `PushSubscriptionObserver`, `UserStateObserver`
 
-**Notifications Namespace (`AppsOnAirPush.Notifications`)**
+**Notifications Namespace (`AppPushService.Notifications`)**
 - Permission — `permission`, `permissionNative`, `canRequestPermission`, `refreshPermission(completion:)`
 - Foreground display — `NotificationLifecycleListener` with `preventDefault()` support
 - Click handling — `NotificationClickListener` with `NotificationClickEvent` (action ID, notification)

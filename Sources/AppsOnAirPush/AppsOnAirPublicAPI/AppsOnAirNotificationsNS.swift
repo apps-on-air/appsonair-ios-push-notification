@@ -2,9 +2,9 @@ import Foundation
 import UserNotifications
 import UIKit
 
-// MARK: - AppsOnAirPush.Notifications namespace
+// MARK: - AppPushService.Notifications namespace
 
-extension AppsOnAirPush {
+extension AppPushService {
 
     /// Notification permission, foreground display control, click handling, and management.
     /// Matches OneSignal.Notifications namespace from OneSignal SDK v5.
@@ -27,10 +27,10 @@ extension AppsOnAirPush {
                         }
                         return
                     }
-                    await MainActor.run { AppsOnAirPush.requestPermission() }
+                    await MainActor.run { AppPushService.requestPermission() }
                 }
             } else {
-                AppsOnAirPush.requestPermission()
+                AppPushService.requestPermission()
             }
         }
 
@@ -43,10 +43,10 @@ extension AppsOnAirPush {
             UNUserNotificationCenter.current().requestAuthorization(options: [.provisional, .badge]) { granted, error in
                 Task { @MainActor in
                     if let error {
-                        AppsOnAirPush.log("Provisional auth failed: \(error.localizedDescription)", level: .error)
+                        AppPushService.log("Provisional auth failed: \(error.localizedDescription)", level: .error)
                         return
                     }
-                    AppsOnAirPush.log("Provisional authorization \(granted ? "granted" : "denied").", level: .info)
+                    AppPushService.log("Provisional authorization \(granted ? "granted" : "denied").", level: .info)
                     if granted {
                         UIApplication.shared.registerForRemoteNotifications()
                     }
@@ -60,20 +60,20 @@ extension AppsOnAirPush {
         /// For reactive updates use `addPermissionObserver(_:)`.
         /// Matches OneSignal v5 `OneSignal.Notifications.permission`.
         public static var permission: Bool {
-            NotificationPermission(AppsOnAirPush.shared.cachedAuthorizationStatus).isGranted
+            NotificationPermission(AppPushService.shared.cachedAuthorizationStatus).isGranted
         }
 
         /// The native OS authorization status (synchronous, cached).
         /// Matches OneSignal v5 `OneSignal.Notifications.permissionNative`.
         public static var permissionNative: NotificationPermission {
-            NotificationPermission(AppsOnAirPush.shared.cachedAuthorizationStatus)
+            NotificationPermission(AppPushService.shared.cachedAuthorizationStatus)
         }
 
         /// Whether `requestPermission()` would show the system dialog (status is
         /// `.notDetermined`). Synchronous, cached.
         /// Matches OneSignal v5 `OneSignal.Notifications.canRequestPermission`.
         public static var canRequestPermission: Bool {
-            AppsOnAirPush.shared.cachedAuthorizationStatus == .notDetermined
+            AppPushService.shared.cachedAuthorizationStatus == .notDetermined
         }
 
         /// Force-refresh the cached permission state from the OS and return the
@@ -82,7 +82,7 @@ extension AppsOnAirPush {
         @discardableResult
         public static func refreshPermission() async -> Bool {
             await withCheckedContinuation { continuation in
-                AppsOnAirPush.refreshPermissionCache { continuation.resume(returning: permission) }
+                AppPushService.refreshPermissionCache { continuation.resume(returning: permission) }
             }
         }
 
@@ -91,11 +91,11 @@ extension AppsOnAirPush {
         /// Add an observer that fires whenever notification permission changes
         /// (user grants, denies, or changes in Settings).
         public static func addPermissionObserver(_ observer: NotificationPermissionObserver) {
-            AppsOnAirPush.shared.permissionObservers.append(observer)
+            AppPushService.shared.permissionObservers.append(observer)
         }
 
         public static func removePermissionObserver(_ observer: NotificationPermissionObserver) {
-            AppsOnAirPush.shared.permissionObservers.removeAll { $0 === observer }
+            AppPushService.shared.permissionObservers.removeAll { $0 === observer }
         }
 
         // MARK: - Foreground Lifecycle Listener
@@ -104,11 +104,11 @@ extension AppsOnAirPush {
         /// Call event.preventDefault() inside the listener to suppress the system banner.
         /// If not prevented, banner + badge + sound are shown (default behaviour).
         public static func addForegroundLifecycleListener(_ listener: NotificationLifecycleListener) {
-            AppsOnAirPush.shared.foregroundListeners.append(listener)
+            AppPushService.shared.foregroundListeners.append(listener)
         }
 
         public static func removeForegroundLifecycleListener(_ listener: NotificationLifecycleListener) {
-            AppsOnAirPush.shared.foregroundListeners.removeAll { $0 === listener }
+            AppPushService.shared.foregroundListeners.removeAll { $0 === listener }
         }
 
         // MARK: - Click Listener
@@ -116,11 +116,11 @@ extension AppsOnAirPush {
         /// Add a listener that fires when the user taps a notification or an action button.
         /// `event.result.actionId` is nil for a body tap; non-nil for a specific action button.
         public static func addClickListener(_ listener: NotificationClickListener) {
-            AppsOnAirPush.shared.clickListeners.append(listener)
+            AppPushService.shared.clickListeners.append(listener)
         }
 
         public static func removeClickListener(_ listener: NotificationClickListener) {
-            AppsOnAirPush.shared.clickListeners.removeAll { $0 === listener }
+            AppPushService.shared.clickListeners.removeAll { $0 === listener }
         }
 
         // MARK: - Management
@@ -128,13 +128,13 @@ extension AppsOnAirPush {
         /// Remove all delivered notifications from Notification Center and lock screen.
         /// Matches OneSignal v5 `OneSignal.Notifications.clearAllNotifications()`.
         public static func clearAllNotifications() {
-            AppsOnAirPush.clearAllNotifications()
+            AppPushService.clearAllNotifications()
         }
 
         /// Remove a specific delivered notification by its identifier.
         public static func removeNotification(withIdentifier identifier: String) {
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
-            AppsOnAirPush.log("Notification removed: \(identifier)", level: .debug)
+            AppPushService.log("Notification removed: \(identifier)", level: .debug)
         }
 
         /// Remove multiple notifications by their identifiers.
