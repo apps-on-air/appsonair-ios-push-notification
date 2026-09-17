@@ -18,4 +18,12 @@ struct EnvironmentConfig{
 
     /// POST target for the click event — sent once the user taps a notification's action button.
     static let eventClicked = serverBaseURL + "v1/events/clicked"
+
+    /// POST target for starting a session when the device is already registered
+    /// (the register response itself starts the first session of a launch).
+    static let startSession = serverBaseURL + "v1/sessions"
+
+    /// PATCH target for ending a session. Append the `sessionId`:
+    ///   sessionById + "<sessionId>"  →  …/v1/sessions/<id>
+    static let sessionById = serverBaseURL + "v1/sessions/"
 }

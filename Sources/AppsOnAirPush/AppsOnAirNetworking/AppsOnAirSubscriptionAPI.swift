@@ -68,6 +68,13 @@ import Foundation
 //   Headers: same four as the POST above (Content-Type: application/json)
 //   Body (exact backend contract — see curl sample):
 //     { "language": <String> }   // e.g. "en-US"
+//
+//   DELETE <EnvironmentConfig.subscriptionById><subscriptionId>   (…/v1/subscriptions/<id>)
+//   Sent on logout() to remove the backend subscription tied to the now-logged-out
+//   user. On success the caller registers a fresh, anonymous subscription in its
+//   place (POST /v1/subscriptions).
+//   Headers: X-App-Id, X-SDK-Version, X-Platform (no Content-Type — no body)
+//   Body: none — see curl sample
 
 @MainActor
 enum AppsOnAirSubscriptionAPI {
@@ -550,6 +557,49 @@ enum AppsOnAirSubscriptionAPI {
         print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString) (language)")
         print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            print("[AppsOnAirSubscriptionAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
+            print("[AppsOnAirSubscriptionAPI]   response=\(text)")
+            Task { @MainActor in
+                completion(data, response, error)
+            }
+        }.resume()
+    }
+
+    /// Send DELETE /v1/subscriptions/<subscriptionId> and return the raw result on
+    /// the main actor.
+    ///
+    /// Mirrors `updateOptInState` — this ONLY builds and sends the request. There
+    /// is no request body, so no `Content-Type` header is set. When the request
+    /// cannot be built (no `subscriptionId`, bad URL) the completion is called
+    /// with all-nil.
+    static func deleteSubscription(
+        completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
+    ) {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
+            print("[AppsOnAirSubscriptionAPI] no subscriptionId — DELETE not sent")
+            completion(nil, nil, nil)
+            return
+        }
+        let endpoint = EnvironmentConfig.subscriptionById + subscriptionId
+        guard let url = URL(string: endpoint) else {
+            print("[AppsOnAirSubscriptionAPI] invalid endpoint URL '\(endpoint)'")
+            completion(nil, nil, nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 20
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
+        request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
+
+        print("[AppsOnAirSubscriptionAPI] → DELETE \(url.absoluteString)")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1

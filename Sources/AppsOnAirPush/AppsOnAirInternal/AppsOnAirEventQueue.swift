@@ -10,7 +10,7 @@ import Foundation
 // Scope §3.4: "SDK reports a delivery receipt (notification ID + subscription ID) back."
 //
 // HOW IT WORKS:
-//   1. SDK calls enqueue() when a click, open, delivery, or session event occurs.
+//   1. SDK calls enqueue() when a click, open, or delivery event occurs.
 //   2. On session start (app foreground), flush() drains the queue in order.
 //   3. Each sendEvent() stub logs the payload and returns true (success).
 //   4. Replace each stub with a real URLSession HTTP call once BE API is ready.
@@ -146,8 +146,6 @@ final class AppsOnAirEventQueue {
                 level: .debug
             )
             return true
-        case .sessionStart:
-            return await sendSessionPing(event)
         }
     }
 
@@ -307,33 +305,6 @@ final class AppsOnAirEventQueue {
                 continuation.resume(returning: (200..<500).contains(status))
             }
         }
-    }
-
-    private func sendSessionPing(_ event: PushEvent) async -> Bool {
-        // TODO: API — POST /sessions
-        // Backend counts this as a MAU session (user with ≥1 session in trailing 30 days — §3.9).
-        // Also triggers a subscription metadata update (device model, OS, app version, etc.).
-        //
-        // let url = URL(string: "\(baseURL)/sessions")!
-        // var request = URLRequest(url: url)
-        // request.httpMethod = "POST"
-        // request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // request.setValue("Bearer \(sdkApiKey)", forHTTPHeaderField: "Authorization")
-        // var body: [String: Any] = [
-        //     "app_id":          configuredAppId,
-        //     "subscription_id": event.subscriptionId ?? "",
-        //     "device_id":       event.deviceId,
-        //     "timestamp":       ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: event.timestamp))
-        // ]
-        // // Merge session + device fields for full subscription update
-        // AppsOnAirSessionManager.shared.asPayloadDict().forEach { body[$0.key] = $0.value }
-        // AppsOnAirDeviceInfo.registrationPayload().forEach { body[$0.key] = $0.value }
-        // request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        AppPushService.log(
-            "EventQueue: [TODO] POST /sessions deviceId=\(event.deviceId)",
-            level: .info
-        )
-        return true // Stub
     }
 
     // MARK: - Persistence

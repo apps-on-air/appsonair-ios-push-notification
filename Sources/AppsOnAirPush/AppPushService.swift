@@ -173,8 +173,8 @@ public final class AppPushService: NSObject {
             }
         }
 
-        // Start session tracking — observes UIApplication foreground/background lifecycle.
-        // Records first_session, last_session, session_count, session_time for MAU metering (§3.9).
+        // Start session tracking — observes UIApplication foreground/background lifecycle
+        // and drives the Session Tracking API (Start/End Session) per its contract.
         AppsOnAirSessionManager.shared.start()
 
         // Fetch the shared device/app metadata snapshot from AppsOnAir_Core.
@@ -367,8 +367,12 @@ public final class AppPushService: NSObject {
     /// It no-ops if already registered, if a request is in flight, before
     /// `initialize()`, or while there is no push token. The actual POST is
     /// deferred to `AppsOnAirNetworkMonitor.runWhenConnected` so it only leaves
-    /// the device when AppsOnAir_Core reports connectivity. The raw URLSession
-    /// result is parsed here — `AppsOnAirSubscriptionAPI` only does transport.
+    /// the device when AppsOnAir_Core reports connectivity. Once connected,
+    /// `AppsOnAirSessionManager.endStaleSessionIfNeeded` closes any session left
+    /// open from a previous run (killed/crashed while backgrounded) before the
+    /// POST fires, so a reopen never registers on top of a still-open session.
+    /// The raw URLSession result is parsed here — `AppsOnAirSubscriptionAPI`
+    /// only does transport.
     internal static func registerSubscriptionIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard !shared.didRegisterSubscription else {
@@ -389,44 +393,57 @@ public final class AppPushService: NSObject {
             // State may have changed while queued for connectivity.
             guard !shared.didRegisterSubscription, !shared.subscriptionRequestInFlight else { return }
             shared.subscriptionRequestInFlight = true
-            print("[AppPushService] POST /v1/subscriptions (\(reason))")
 
-            AppsOnAirSubscriptionAPI.registerDevice { data, response, error in
-                shared.subscriptionRequestInFlight = false
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            // On reopen, a sessionId can survive from a previous run that was
+            // killed/crashed while backgrounded (its End Session PATCH never
+            // landed). Close it before registering and opening a new session.
+            AppsOnAirSessionManager.shared.endStaleSessionIfNeeded {
+                print("[AppPushService] POST /v1/subscriptions (\(reason))")
 
-                if let error {
-                    print("[AppPushService] /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
-                    return
-                }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
+                AppsOnAirSubscriptionAPI.registerDevice { data, response, error in
+                    shared.subscriptionRequestInFlight = false
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
 
-                guard (200..<300).contains(status) else {
-                    print("[AppPushService] /v1/subscriptions non-2xx — not marking registered")
-                    return
-                }
+                    if let error {
+                        print("[AppPushService] /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
 
-                // Success — this is the one registration for this launch.
-                shared.didRegisterSubscription = true
+                    guard (200..<300).contains(status) else {
+                        print("[AppPushService] /v1/subscriptions non-2xx — not marking registered")
+                        return
+                    }
 
-                guard let data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    print("[AppPushService] /v1/subscriptions 2xx but response body was not JSON")
-                    return
-                }
-                let sid = (json["subscriptionId"] as? String)
-                    ?? (json["subscription_id"] as? String)
-                    ?? ((json["data"] as? [String: Any])?["subscriptionId"] as? String)
-                if let sid, !sid.isEmpty {
-                    print("[AppPushService] /v1/subscriptions subscriptionId=\(sid)")
-                    setSubscriptionId(sid)              // persists + mirrors to App Group
-                    firePushSubscriptionChange()
-                    // Now that a subscriptionId exists, pull the backend's tag set
-                    // into the local cache so User.getTags() reads it synchronously.
-                    refreshTagsIfReady(reason: .tagsFetched)
-                } else {
-                    print("[AppPushService] /v1/subscriptions 2xx but no subscriptionId in response")
+                    // Success — this is the one registration for this launch.
+                    shared.didRegisterSubscription = true
+
+                    guard let data,
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        print("[AppPushService] /v1/subscriptions 2xx but response body was not JSON")
+                        return
+                    }
+                    let sid = (json["subscriptionId"] as? String)
+                        ?? (json["subscription_id"] as? String)
+                        ?? ((json["data"] as? [String: Any])?["subscriptionId"] as? String)
+                    if let sid, !sid.isEmpty {
+                        print("[AppPushService] /v1/subscriptions subscriptionId=\(sid)")
+                        setSubscriptionId(sid)              // persists + mirrors to App Group
+                        firePushSubscriptionChange()
+                        // Now that a subscriptionId exists, pull the backend's tag set
+                        // into the local cache so User.getTags() reads it synchronously.
+                        refreshTagsIfReady(reason: .tagsFetched)
+
+                        // Registering already counts as a session start (Session Tracking
+                        // API contract) — adopt the sessionId/startedAt returned alongside it.
+                        if let sessionId = json["sessionId"] as? String, !sessionId.isEmpty,
+                           let startedAt = json["startedAt"] as? Double {
+                            AppsOnAirSessionManager.shared.adopt(sessionId: sessionId, startedAt: startedAt)
+                        }
+                    } else {
+                        print("[AppPushService] /v1/subscriptions 2xx but no subscriptionId in response")
+                    }
                 }
             }
         }
@@ -537,6 +554,58 @@ public final class AppPushService: NSObject {
                 }
                 let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
                 print("[AppPushService] PATCH /v1/subscriptions external_id HTTP \(status) (\(reason)): \(bodyText)")
+            }
+        }
+    }
+
+    /// DELETE /v1/subscriptions/<id> to remove the backend subscription tied to
+    /// the now-logged-out user, then register a fresh, anonymous subscription in
+    /// its place — replaces the old logout flow of PATCHing `external_id` to
+    /// null on the existing subscription.
+    ///
+    /// Same deferral as the other `…IfReady` orchestrators: the request is
+    /// handed to `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the
+    /// device once AppsOnAir_Core reports connectivity. No-ops before
+    /// `initialize()` or while there is no `subscriptionId` (nothing to delete).
+    /// On a 2xx response the local subscriptionId (and its App Group mirror) is
+    /// cleared and `registerSubscriptionIfReady` is called again to POST a fresh
+    /// subscription for the device. A non-2xx response, or a transport error,
+    /// leaves the existing subscriptionId in place so nothing is lost.
+    internal static func deleteSubscriptionOnLogout() {
+        guard shared.isConfigured else { return }
+        guard let sid = subscriptionId, !sid.isEmpty else {
+            print("[AppPushService] no subscriptionId yet — logout DELETE skipped")
+            return
+        }
+
+        print("[AppPushService] subscription delete ready (logout) — waiting for connectivity")
+        AppsOnAirNetworkMonitor.runWhenConnected {
+            print("[AppPushService] DELETE /v1/subscriptions/\(sid) (logout)")
+
+            AppsOnAirSubscriptionAPI.deleteSubscription { data, response, error in
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if let error {
+                    print("[AppPushService] DELETE /v1/subscriptions error (logout): \(error.localizedDescription)")
+                    return
+                }
+                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                print("[AppPushService] DELETE /v1/subscriptions HTTP \(status) (logout): \(bodyText)")
+
+                guard (200..<300).contains(status) else {
+                    print("[AppPushService] DELETE /v1/subscriptions non-2xx — keeping existing subscriptionId")
+                    return
+                }
+
+                // Backend subscription is gone — drop the local id (and its App
+                // Group mirror) and register a fresh, anonymous subscription.
+                shared.storage.clearSubscriptionId()
+                if let groupId = shared._appGroupId,
+                   let groupDefaults = UserDefaults(suiteName: groupId) {
+                    groupDefaults.removeObject(forKey: "com.appsonair.push.subscriptionId")
+                    groupDefaults.synchronize()
+                }
+                shared.didRegisterSubscription = false
+                registerSubscriptionIfReady(reason: .logout)
             }
         }
     }
@@ -817,9 +886,11 @@ public final class AppPushService: NSObject {
         log("User logged out. Reverted to anonymous.", level: .debug)
         let state = UserChangedState(current: UserState(externalId: nil, appsOnAirId: deviceId))
         shared.userStateObservers.forEach { $0.onUserStateDidChange(state: state) }
-        // Unlink the user on the backend subscription —
-        // PATCH /v1/subscriptions/<id> { "external_id": null }, gated on connectivity.
-        syncExternalIdIfReady(reason: .logout)
+        // Remove the backend subscription tied to the now-logged-out user and
+        // register a fresh, anonymous one in its place —
+        // DELETE /v1/subscriptions/<id>, gated on connectivity; on success, POST
+        // /v1/subscriptions again to create the new anonymous subscription.
+        deleteSubscriptionOnLogout()
     }
 
     // MARK: - Consent

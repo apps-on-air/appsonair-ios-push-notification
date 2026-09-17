@@ -340,8 +340,6 @@ public enum PushEventType: String, Codable {
     case received
     /// NSE confirmed delivery to the device — powers "Delivered" analytics (paid tier, §3.4).
     case delivered
-    /// App became active — counts as a MAU session on the backend (§3.9).
-    case sessionStart
 }
 
 // MARK: - PushEvent

@@ -195,18 +195,17 @@ enum AppsOnAirDeviceInfo {
     // MARK: - Registration payload
 
     /// Full subscription registration payload.
-    /// Merge with session data from AppsOnAirSessionManager.shared.asPayloadDict() before POSTing.
     ///
     /// TODO: API — POST /subscriptions
     /// When to call:
     ///   1. After configure() + handleAPNsToken() fires (new/refreshed subscription)
-    ///   2. On session start in AppsOnAirEventQueue.sendSessionPing() (subscription update)
+    ///   2. On session start (subscription update)
     ///
     /// Endpoint:  POST <base_url>/subscriptions
     /// Headers:
     ///   Authorization: Bearer <sdk_api_key>
     ///   Content-Type:  application/json
-    /// Body (merge with AppsOnAirSessionManager.shared.asPayloadDict()):
+    /// Body:
     /// {
     ///   "app_id":           "<configured appId>",
     ///   "device_id":        AppPushService.deviceId,   // AppsOnAir_Core per-install device id (AppsOnAirCoreServices.deviceId)
@@ -226,17 +225,13 @@ enum AppsOnAirDeviceInfo {
     ///   "first_install_time": "03-Sep-2025 10:45:30 AM",   // Core deviceInfo["firstInstallTime"]
     ///   "is_opted_out":     false,
     ///   "is_rooted":        false,
-    ///   "is_test_device":   false,
-    ///   "first_session":    "2024-01-15T10:00:00Z",
-    ///   "last_session":     "2024-01-20T14:30:00Z",
-    ///   "session_count":    12,
-    ///   "session_time_sec": 3600
+    ///   "is_test_device":   false
     /// }
     /// Response: { "subscription_id": "<BE-generated UUID>" }
     ///   → call AppPushService.setSubscriptionId(response["subscription_id"])
     static func registrationPayload() -> [String: Any] {
         let s = snapshot
-        var payload: [String: Any] = [
+        let payload: [String: Any] = [
             "sdk_version":       sdkVersion,
             "app_version":       s.primed ? s.appVersion
                                           : (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""),
@@ -255,8 +250,6 @@ enum AppsOnAirDeviceInfo {
             "is_test_device":    AppPushService.isTestDevice,
             "apns_environment":  AppPushService.apnsEnvironment.rawValue
         ]
-        // Merge session fields (first_session, last_session, session_count, session_time_sec)
-        AppsOnAirSessionManager.shared.asPayloadDict().forEach { payload[$0.key] = $0.value }
 
         if !s.primed {
             AppPushService.log("DeviceInfo: payload assembled before AppsOnAir_Core primed — using Bundle/UIDevice fallbacks.", level: .warn)
