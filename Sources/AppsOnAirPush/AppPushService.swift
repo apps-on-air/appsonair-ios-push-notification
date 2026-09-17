@@ -62,6 +62,16 @@ public final class AppPushService: NSObject {
     /// so a burst of APNs token callbacks doesn't fire overlapping PATCHes.
     internal var pushTokenUpdateInFlight = false
 
+    /// Sync calls waiting on this launch's `subscriptionId` — appended by
+    /// `runOnceSubscriptionReady` whenever `updateSubscriptionEnabledIfReady`,
+    /// `syncExternalIdIfReady`, and the other `…IfReady` orchestrators below are
+    /// invoked before `POST /v1/subscriptions` has returned one (e.g. the user
+    /// answers the OS permission prompt, or calls `login()`, while registration
+    /// is still on the wire). Drained, in the order queued, by
+    /// `registerSubscriptionIfReady` the moment it assigns a `subscriptionId`, so
+    /// none of these calls is silently dropped by the race.
+    internal var pendingSubscriptionActions: [() -> Void] = []
+
     /// Last-known OS notification authorization status. Refreshed on `initialize()`,
     /// on every app foreground, and after each permission request. Backs the
     /// synchronous `Notifications.permission` / `.permissionNative` / `.canRequestPermission`.
@@ -180,6 +190,11 @@ public final class AppPushService: NSObject {
         // Fetch the shared device/app metadata snapshot from AppsOnAir_Core.
         // Asynchronous — registrationPayload() falls back to Bundle/UIDevice until it lands.
         AppsOnAirDeviceInfo.prime()
+        // Run the jailbreak heuristic off the main thread — it does a sandboxed
+        // file write that can visibly stall the main thread if run inline during
+        // subscriptionBody()'s construction (i.e. at launch, alongside the
+        // permission prompt). isJailbroken reads false until this lands.
+        AppsOnAirDeviceInfo.primeJailbreakCheck()
 
         // Prime the notification-permission cache and keep it fresh on every foreground
         // so Notifications.permission / .canRequestPermission can be read synchronously.
@@ -435,6 +450,17 @@ public final class AppPushService: NSObject {
                         // into the local cache so User.getTags() reads it synchronously.
                         refreshTagsIfReady(reason: .tagsFetched)
 
+                        // Run any sync calls that raced this registration — e.g. a
+                        // permission grant/denial, login()/logout(), a tag change, or
+                        // a language override that fired before this POST returned —
+                        // in the order they were queued.
+                        if !shared.pendingSubscriptionActions.isEmpty {
+                            let queued = shared.pendingSubscriptionActions
+                            shared.pendingSubscriptionActions.removeAll()
+                            print("[AppPushService] flushing \(queued.count) queued subscription sync call(s)")
+                            queued.forEach { $0() }
+                        }
+
                         // Registering already counts as a session start (Session Tracking
                         // API contract) — adopt the sessionId/startedAt returned alongside it.
                         if let sessionId = json["sessionId"] as? String, !sessionId.isEmpty,
@@ -449,34 +475,48 @@ public final class AppPushService: NSObject {
         }
     }
 
+    /// Run `action` now if a `subscriptionId` already exists; otherwise append it
+    /// to `pendingSubscriptionActions` to run, in the order queued, the moment
+    /// `registerSubscriptionIfReady` succeeds and assigns one. Centralizes the
+    /// "wait for registration, don't drop" behavior shared by every `…IfReady`
+    /// sync orchestrator below.
+    private static func runOnceSubscriptionReady(reason: AppsOnAirSyncReason, _ action: @escaping () -> Void) {
+        guard shared.isConfigured else { return }
+        guard let sid = subscriptionId, !sid.isEmpty else {
+            print("[AppPushService] no subscriptionId yet — queued until registration completes (\(reason))")
+            shared.pendingSubscriptionActions.append(action)
+            return
+        }
+        action()
+    }
+
     /// PATCH the backend subscription's `enabled` flag so it matches the current
     /// notification-permission status — `true` when granted, `false` otherwise.
     ///
     /// Same deferral as `registerSubscriptionIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
-    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()` or while
-    /// there is no `subscriptionId` (nothing to update yet). The permission value
-    /// is re-read inside the connectivity closure so a late send reflects reality.
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`. While
+    /// there is no `subscriptionId` yet, the call is queued (`runOnceSubscriptionReady`)
+    /// and runs the moment `registerSubscriptionIfReady` assigns one — e.g. the user
+    /// answers the permission prompt before `POST /v1/subscriptions` returns. The
+    /// permission value is re-read inside the connectivity closure so a late send
+    /// reflects reality.
     internal static func updateSubscriptionEnabledIfReady(reason: AppsOnAirSyncReason) {
-        guard shared.isConfigured else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — enabled sync deferred (\(reason))")
-            return
-        }
+        runOnceSubscriptionReady(reason: reason) {
+            print("[AppPushService] subscription enabled sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                let enabled = Notifications.permission
+                print("[AppPushService] PATCH /v1/subscriptions enabled=\(enabled) (\(reason))")
 
-        print("[AppPushService] subscription enabled sync ready (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            let enabled = Notifications.permission
-            print("[AppPushService] PATCH /v1/subscriptions enabled=\(enabled) (\(reason))")
-
-            AppsOnAirSubscriptionAPI.updateSubscription(enabled: enabled) { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] PATCH /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
-                    return
+                AppsOnAirSubscriptionAPI.updateSubscription(enabled: enabled) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] PATCH /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] PATCH /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] PATCH /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -489,36 +529,35 @@ public final class AppPushService: NSObject {
     /// some OS upgrades, and app reinstalls). Same deferral as
     /// `registerSubscriptionIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
-    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`, while
-    /// there is no `subscriptionId` (the POST will carry the new token instead),
-    /// or while a PATCH is already in flight. The token is re-read inside the
-    /// connectivity closure so a late send reflects the newest value.
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()` or while a
+    /// PATCH is already in flight. While there is no `subscriptionId` yet, the call
+    /// is queued and runs once `registerSubscriptionIfReady` assigns one — harmless
+    /// even though the POST that created it already carried this token. The token
+    /// is re-read inside the connectivity closure so a late send reflects the
+    /// newest value.
     internal static func updatePushTokenIfRotated(reason: AppsOnAirSyncReason) {
-        guard shared.isConfigured else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — token PATCH deferred (\(reason))")
-            return
-        }
         guard !shared.pushTokenUpdateInFlight else {
             print("[AppPushService] token PATCH already in flight — skip (\(reason))")
             return
         }
-
-        print("[AppPushService] push token rotated (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
+        runOnceSubscriptionReady(reason: reason) {
             guard !shared.pushTokenUpdateInFlight else { return }
-            shared.pushTokenUpdateInFlight = true
-            print("[AppPushService] PATCH /v1/subscriptions push_token (\(reason))")
+            print("[AppPushService] push token rotated (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                guard !shared.pushTokenUpdateInFlight else { return }
+                shared.pushTokenUpdateInFlight = true
+                print("[AppPushService] PATCH /v1/subscriptions push_token (\(reason))")
 
-            AppsOnAirSubscriptionAPI.updatePushToken { data, response, error in
-                shared.pushTokenUpdateInFlight = false
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] PATCH /v1/subscriptions push_token error (\(reason)): \(error.localizedDescription)")
-                    return
+                AppsOnAirSubscriptionAPI.updatePushToken { data, response, error in
+                    shared.pushTokenUpdateInFlight = false
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] PATCH /v1/subscriptions push_token error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] PATCH /v1/subscriptions push_token HTTP \(status) (\(reason)): \(bodyText)")
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] PATCH /v1/subscriptions push_token HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -529,31 +568,27 @@ public final class AppPushService: NSObject {
     ///
     /// Same deferral as `updateSubscriptionEnabledIfReady()`: the request is handed
     /// to `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device
-    /// once AppsOnAir_Core reports connectivity. No-ops before `initialize()` or
-    /// while there is no `subscriptionId` — the `POST /v1/subscriptions` body
-    /// carries the current `external_id` in that case, so nothing is lost. The
-    /// `externalId` is re-read inside the connectivity closure so a late send
-    /// reflects the most recent `login()` / `logout()`.
+    /// once AppsOnAir_Core reports connectivity. No-ops before `initialize()`.
+    /// While there is no `subscriptionId` yet, the call is queued and runs once
+    /// `registerSubscriptionIfReady` assigns one. The `externalId` is re-read
+    /// inside the connectivity closure so a late send reflects the most recent
+    /// `login()` / `logout()`.
     internal static func syncExternalIdIfReady(reason: AppsOnAirSyncReason) {
-        guard shared.isConfigured else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — external_id sync deferred (\(reason))")
-            return
-        }
+        runOnceSubscriptionReady(reason: reason) {
+            print("[AppPushService] external_id sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                let externalId = shared.externalId
+                print("[AppPushService] PATCH /v1/subscriptions external_id=\(externalId ?? "null") (\(reason))")
 
-        print("[AppPushService] external_id sync ready (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            let externalId = shared.externalId
-            print("[AppPushService] PATCH /v1/subscriptions external_id=\(externalId ?? "null") (\(reason))")
-
-            AppsOnAirSubscriptionAPI.updateExternalId(externalId) { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] PATCH /v1/subscriptions external_id error (\(reason)): \(error.localizedDescription)")
-                    return
+                AppsOnAirSubscriptionAPI.updateExternalId(externalId) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] PATCH /v1/subscriptions external_id error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] PATCH /v1/subscriptions external_id HTTP \(status) (\(reason)): \(bodyText)")
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] PATCH /v1/subscriptions external_id HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -566,46 +601,44 @@ public final class AppPushService: NSObject {
     /// Same deferral as the other `…IfReady` orchestrators: the request is
     /// handed to `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the
     /// device once AppsOnAir_Core reports connectivity. No-ops before
-    /// `initialize()` or while there is no `subscriptionId` (nothing to delete).
-    /// On a 2xx response the local subscriptionId (and its App Group mirror) is
-    /// cleared and `registerSubscriptionIfReady` is called again to POST a fresh
-    /// subscription for the device. A non-2xx response, or a transport error,
-    /// leaves the existing subscriptionId in place so nothing is lost.
+    /// `initialize()`. While there is no `subscriptionId` yet, the call is queued
+    /// and runs once `registerSubscriptionIfReady` assigns one. On a 2xx response
+    /// the local subscriptionId (and its App Group mirror) is cleared and
+    /// `registerSubscriptionIfReady` is called again to POST a fresh subscription
+    /// for the device. A non-2xx response, or a transport error, leaves the
+    /// existing subscriptionId in place so nothing is lost.
     internal static func deleteSubscriptionOnLogout() {
-        guard shared.isConfigured else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — logout DELETE skipped")
-            return
-        }
+        runOnceSubscriptionReady(reason: .logout) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] subscription delete ready (logout) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                print("[AppPushService] DELETE /v1/subscriptions/\(sid) (logout)")
 
-        print("[AppPushService] subscription delete ready (logout) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            print("[AppPushService] DELETE /v1/subscriptions/\(sid) (logout)")
+                AppsOnAirSubscriptionAPI.deleteSubscription { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] DELETE /v1/subscriptions error (logout): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] DELETE /v1/subscriptions HTTP \(status) (logout): \(bodyText)")
 
-            AppsOnAirSubscriptionAPI.deleteSubscription { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] DELETE /v1/subscriptions error (logout): \(error.localizedDescription)")
-                    return
+                    guard (200..<300).contains(status) else {
+                        print("[AppPushService] DELETE /v1/subscriptions non-2xx — keeping existing subscriptionId")
+                        return
+                    }
+
+                    // Backend subscription is gone — drop the local id (and its App
+                    // Group mirror) and register a fresh, anonymous subscription.
+                    shared.storage.clearSubscriptionId()
+                    if let groupId = shared._appGroupId,
+                       let groupDefaults = UserDefaults(suiteName: groupId) {
+                        groupDefaults.removeObject(forKey: "com.appsonair.push.subscriptionId")
+                        groupDefaults.synchronize()
+                    }
+                    shared.didRegisterSubscription = false
+                    registerSubscriptionIfReady(reason: .logout)
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] DELETE /v1/subscriptions HTTP \(status) (logout): \(bodyText)")
-
-                guard (200..<300).contains(status) else {
-                    print("[AppPushService] DELETE /v1/subscriptions non-2xx — keeping existing subscriptionId")
-                    return
-                }
-
-                // Backend subscription is gone — drop the local id (and its App
-                // Group mirror) and register a fresh, anonymous subscription.
-                shared.storage.clearSubscriptionId()
-                if let groupId = shared._appGroupId,
-                   let groupDefaults = UserDefaults(suiteName: groupId) {
-                    groupDefaults.removeObject(forKey: "com.appsonair.push.subscriptionId")
-                    groupDefaults.synchronize()
-                }
-                shared.didRegisterSubscription = false
-                registerSubscriptionIfReady(reason: .logout)
             }
         }
     }
@@ -617,31 +650,27 @@ public final class AppPushService: NSObject {
     /// Same deferral as `updateSubscriptionEnabledIfReady()`: the request is
     /// handed to `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the
     /// device once AppsOnAir_Core reports connectivity. No-ops before
-    /// `initialize()` or while there is no `subscriptionId` — the
-    /// `POST /v1/subscriptions` body carries the current opt-in state in its
-    /// `enabled` field in that case, so nothing is lost. `isOptedOut` is re-read
-    /// inside the connectivity closure so a rapid `optOut()` / `optIn()` toggle
-    /// only sends the final state.
+    /// `initialize()`. While there is no `subscriptionId` yet, the call is queued
+    /// and runs once `registerSubscriptionIfReady` assigns one. `isOptedOut` is
+    /// re-read inside the connectivity closure so a rapid `optOut()` / `optIn()`
+    /// toggle only sends the final state.
     internal static func syncOptInStateIfReady(reason: AppsOnAirSyncReason) {
-        guard shared.isConfigured else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — opt-in sync deferred (\(reason))")
-            return
-        }
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] opt-in state sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                let optedOut = shared.isOptedOut
+                print("[AppPushService] POST /v1/subscriptions/\(sid)/\(optedOut ? "opt-out" : "opt-in") (\(reason))")
 
-        print("[AppPushService] opt-in state sync ready (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            let optedOut = shared.isOptedOut
-            print("[AppPushService] POST /v1/subscriptions/\(sid)/\(optedOut ? "opt-out" : "opt-in") (\(reason))")
-
-            AppsOnAirSubscriptionAPI.updateOptInState(optedOut: optedOut) { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] opt-in state POST error (\(reason)): \(error.localizedDescription)")
-                    return
+                AppsOnAirSubscriptionAPI.updateOptInState(optedOut: optedOut) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] opt-in state POST error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] opt-in state POST HTTP \(status) (\(reason)): \(bodyText)")
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] opt-in state POST HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -651,31 +680,28 @@ public final class AppPushService: NSObject {
     ///
     /// Same deferral as `syncOptInStateIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
-    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()` or while
-    /// there is no `subscriptionId` — the `POST /v1/subscriptions` body carries
-    /// the current `language` in that case, so nothing is lost. `shared.language`
-    /// is re-read inside the connectivity closure so a rapid sequence of
-    /// `setLanguage()` calls only sends the final value.
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`. While
+    /// there is no `subscriptionId` yet, the call is queued and runs once
+    /// `registerSubscriptionIfReady` assigns one. `shared.language` is re-read
+    /// inside the connectivity closure so a rapid sequence of `setLanguage()`
+    /// calls only sends the final value.
     internal static func syncLanguageIfReady(reason: AppsOnAirSyncReason) {
-        guard shared.isConfigured else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — language sync deferred (\(reason))")
-            return
-        }
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] language sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                let language = shared.language
+                print("[AppPushService] PATCH /v1/subscriptions/\(sid)/language language=\(language) (\(reason))")
 
-        print("[AppPushService] language sync ready (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            let language = shared.language
-            print("[AppPushService] PATCH /v1/subscriptions/\(sid)/language language=\(language) (\(reason))")
-
-            AppsOnAirSubscriptionAPI.updateLanguage(language) { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] language PATCH error (\(reason)): \(error.localizedDescription)")
-                    return
+                AppsOnAirSubscriptionAPI.updateLanguage(language) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] language PATCH error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] language PATCH HTTP \(status) (\(reason)): \(bodyText)")
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] language PATCH HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -685,35 +711,32 @@ public final class AppPushService: NSObject {
     ///
     /// Same deferral as `syncOptInStateIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
-    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()` or while
-    /// there is no `subscriptionId` — the tags are already persisted locally, and
-    /// the next `addTag()` / `addTags()` after the subscription exists flushes
-    /// the whole set. `shared.tags` is re-read inside the connectivity closure so
-    /// a late send carries every tag added while offline.
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`. While
+    /// there is no `subscriptionId` yet, the call is queued and runs once
+    /// `registerSubscriptionIfReady` assigns one. `shared.tags` is re-read inside
+    /// the connectivity closure so a late send carries every tag added while
+    /// offline.
     internal static func syncTagsIfReady(reason: AppsOnAirSyncReason) {
-        guard shared.isConfigured else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — tags sync deferred (\(reason))")
-            return
-        }
-
-        print("[AppPushService] tags sync ready (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            let tags = shared.tags
-            guard !tags.isEmpty else {
-                print("[AppPushService] no tags to sync (\(reason))")
-                return
-            }
-            print("[AppPushService] POST /v1/subscriptions/\(sid)/tags \(tags) (\(reason))")
-
-            AppsOnAirSubscriptionAPI.updateTags(tags) { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] tags POST error (\(reason)): \(error.localizedDescription)")
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] tags sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                let tags = shared.tags
+                guard !tags.isEmpty else {
+                    print("[AppPushService] no tags to sync (\(reason))")
                     return
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] tags POST HTTP \(status) (\(reason)): \(bodyText)")
+                print("[AppPushService] POST /v1/subscriptions/\(sid)/tags \(tags) (\(reason))")
+
+                AppsOnAirSubscriptionAPI.updateTags(tags) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] tags POST error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] tags POST HTTP \(status) (\(reason)): \(bodyText)")
+                }
             }
         }
     }
@@ -724,32 +747,29 @@ public final class AppPushService: NSObject {
     ///
     /// Same deferral as `syncTagsIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
-    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`, while
-    /// there is no `subscriptionId` (nothing was ever synced, so nothing to
-    /// remove), or when `keys` is empty. The keys are captured as passed — they
-    /// have already been removed from `shared.tags`, so they cannot be re-derived
-    /// inside the closure.
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`, or when
+    /// `keys` is empty. While there is no `subscriptionId` yet, the call is
+    /// queued and runs once `registerSubscriptionIfReady` assigns one. The keys
+    /// are captured as passed — they have already been removed from
+    /// `shared.tags`, so they cannot be re-derived inside the closure.
     internal static func syncTagRemovalIfReady(keys: [String], reason: AppsOnAirSyncReason) {
-        guard shared.isConfigured else { return }
         let keys = keys.filter { !$0.isEmpty }
         guard !keys.isEmpty else { return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — tags/remove sync skipped (\(reason))")
-            return
-        }
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] tags/remove sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                print("[AppPushService] POST /v1/subscriptions/\(sid)/tags/remove \(keys) (\(reason))")
 
-        print("[AppPushService] tags/remove sync ready (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            print("[AppPushService] POST /v1/subscriptions/\(sid)/tags/remove \(keys) (\(reason))")
-
-            AppsOnAirSubscriptionAPI.removeTags(keys) { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] tags/remove POST error (\(reason)): \(error.localizedDescription)")
-                    return
+                AppsOnAirSubscriptionAPI.removeTags(keys) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] tags/remove POST error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] tags/remove POST HTTP \(status) (\(reason)): \(bodyText)")
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] tags/remove POST HTTP \(status) (\(reason)): \(bodyText)")
             }
         }
     }
@@ -761,8 +781,11 @@ public final class AppPushService: NSObject {
     /// OneSignal model) and schedules this refresh so the next read reflects the
     /// backend. Same deferral as `syncTagsIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
-    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()` or while
-    /// there is no `subscriptionId` (nothing has been registered to read).
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()` (calling
+    /// `completion` with the unchanged local cache). While there is no
+    /// `subscriptionId` yet, the call is queued and runs once
+    /// `registerSubscriptionIfReady` assigns one — `completion` is held until then
+    /// rather than firing early with a stale cache.
     ///
     /// `completion` (main actor) receives the freshly parsed tag map on success,
     /// or the unchanged local cache when the request could not be sent, errored,
@@ -772,38 +795,35 @@ public final class AppPushService: NSObject {
         completion: (@MainActor ([String: String]) -> Void)? = nil
     ) {
         guard shared.isConfigured else { completion?(shared.tags); return }
-        guard let sid = subscriptionId, !sid.isEmpty else {
-            print("[AppPushService] no subscriptionId yet — tags GET skipped (\(reason))")
-            completion?(shared.tags)
-            return
-        }
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { completion?(shared.tags); return }
+            print("[AppPushService] tags refresh ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                print("[AppPushService] GET /v1/subscriptions/\(sid)/tags (\(reason))")
 
-        print("[AppPushService] tags refresh ready (\(reason)) — waiting for connectivity")
-        AppsOnAirNetworkMonitor.runWhenConnected {
-            print("[AppPushService] GET /v1/subscriptions/\(sid)/tags (\(reason))")
+                AppsOnAirSubscriptionAPI.fetchTags { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] tags GET error (\(reason)): \(error.localizedDescription)")
+                        completion?(shared.tags)
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] tags GET HTTP \(status) (\(reason)): \(bodyText)")
 
-            AppsOnAirSubscriptionAPI.fetchTags { data, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if let error {
-                    print("[AppPushService] tags GET error (\(reason)): \(error.localizedDescription)")
-                    completion?(shared.tags)
-                    return
+                    guard (200..<300).contains(status),
+                          let remote = AppsOnAirSubscriptionAPI.parseTagsResponse(data) else {
+                        completion?(shared.tags)
+                        return
+                    }
+
+                    shared.tags = remote
+                    if let encoded = try? JSONEncoder().encode(remote) {
+                        UserDefaults.standard.set(encoded, forKey: "com.appsonair.push.tags")
+                    }
+                    print("[AppPushService] local tag cache refreshed from backend (\(remote.count) tag(s))")
+                    completion?(remote)
                 }
-                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                print("[AppPushService] tags GET HTTP \(status) (\(reason)): \(bodyText)")
-
-                guard (200..<300).contains(status),
-                      let remote = AppsOnAirSubscriptionAPI.parseTagsResponse(data) else {
-                    completion?(shared.tags)
-                    return
-                }
-
-                shared.tags = remote
-                if let encoded = try? JSONEncoder().encode(remote) {
-                    UserDefaults.standard.set(encoded, forKey: "com.appsonair.push.tags")
-                }
-                print("[AppPushService] local tag cache refreshed from backend (\(remote.count) tag(s))")
-                completion?(remote)
             }
         }
     }

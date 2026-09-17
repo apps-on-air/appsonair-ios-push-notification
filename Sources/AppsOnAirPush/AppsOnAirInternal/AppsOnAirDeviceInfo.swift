@@ -112,12 +112,50 @@ enum AppsOnAirDeviceInfo {
         return parseBuildNumber(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "")
     }
 
+    /// Cached result of `computeIsJailbroken()`, filled in by `primeJailbreakCheck()`.
+    /// Defaults to `false` (untampered) until that completes.
+    private static var cachedIsJailbroken = false
+
+    /// Run the jailbreak heuristic off the main thread and cache the result for
+    /// `isJailbroken` to read synchronously. Call once from
+    /// `AppPushService.initialize()`, alongside `prime()`.
+    ///
+    /// The check includes writing a probe file to `/private/…` — outside the
+    /// app's sandbox — and catching the expected failure. On a real device that
+    /// sandbox violation is logged by the OS and, with a debugger attached, can
+    /// visibly stall the thread it runs on for a second or more. Running it
+    /// synchronously on the main actor during `subscriptionBody()` (i.e. at
+    /// launch, exactly when the app is also showing the permission prompt) is
+    /// what produced the "app freezes for a couple seconds at launch" symptom —
+    /// hence computing it off-thread here instead.
+    static func primeJailbreakCheck() {
+        #if targetEnvironment(simulator)
+        // isJailbroken already reads false unconditionally on simulator.
+        #else
+        Task.detached(priority: .utility) {
+            let result = computeIsJailbroken()
+            await MainActor.run { AppsOnAirDeviceInfo.cachedIsJailbroken = result }
+        }
+        #endif
+    }
+
     /// Heuristic jailbreak check — NOT a security guarantee. Used for segmentation only.
-    /// Returns false on simulator always. (Push-owned — Core does not provide this.)
+    /// Returns false on simulator always, and false on device until
+    /// `primeJailbreakCheck()`'s background check completes. (Push-owned — Core
+    /// does not provide this.)
     static var isJailbroken: Bool {
         #if targetEnvironment(simulator)
         return false
         #else
+        cachedIsJailbroken
+        #endif
+    }
+
+    /// The actual filesystem heuristic — moved out of `isJailbroken` so it can run
+    /// off the main actor. Not annotated `@MainActor`-isolated (the enclosing type
+    /// is, but this body touches no UIKit / main-actor state), so `Task.detached`
+    /// can call it from a background thread.
+    nonisolated private static func computeIsJailbroken() -> Bool {
         let paths = [
             "/Applications/Cydia.app",
             "/Library/MobileSubstrate/MobileSubstrate.dylib",
@@ -132,7 +170,6 @@ enum AppsOnAirDeviceInfo {
             try FileManager.default.removeItem(atPath: probe)
             return true
         } catch { return false }
-        #endif
     }
 
     // MARK: - Core device metadata
