@@ -29,17 +29,19 @@ enum AppsOnAirDeviceInfo {
     // MARK: - Static fields
 
     /// CocoaPods pod name / SPM product name — the key `SdkManager` looks up.
-    private static let sdkName = "AppPushService"
+    /// Must match `s.name` in `AppsOnAir-AppPush.podspec`; never any other
+    /// AppsOnAir SDK's pod name (e.g. `AppsOnAir-Core`).
+    private static let sdkName = "AppsOnAir-AppPush"
 
     /// Used only when the installed package ships no version metadata (e.g. SPM
     /// added as source with no resource bundle). Keep in sync with
     /// `AppPushService.podspec` `s.version` on every release.
-    private static let fallbackSDKVersion = "0.0.1"
+    private static let fallbackSDKVersion = "0.0.3-alpha"
 
     /// SDK version, resolved at runtime from the installed package rather than
     /// hard-coded here:
-    ///   • CocoaPods — `CFBundleShortVersionString` of the `AppPushService` pod
-    ///     framework (`org.cocoapods.AppPushService`), i.e. the `.podspec` version.
+    ///   • CocoaPods — `CFBundleShortVersionString` of the `AppsOnAir-AppPush` pod
+    ///     framework (`org.cocoapods.AppsOnAir-AppPush`), i.e. the `.podspec` version.
     ///   • SPM — the SDK bundle's `CFBundleShortVersionString` when the package is
     ///     consumed as a framework / xcframework.
     /// Delegated to AppsOnAir_Core's `SdkManager`, which walks the same bundle

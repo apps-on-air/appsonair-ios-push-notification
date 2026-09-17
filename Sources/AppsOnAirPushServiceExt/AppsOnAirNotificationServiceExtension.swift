@@ -167,6 +167,10 @@ public enum AppPushServiceExtension {
     private static let maxProcessingTime: TimeInterval = 25
     /// Per-attachment network timeout.
     private static let attachmentDownloadTimeout: TimeInterval = 15
+    /// Cap on the direct `POST /v1/events/delivered` attempt from the NSE process —
+    /// see `sendDeliveryReceiptDirect`. Also bounded by whatever's left of
+    /// `maxProcessingTime` by the time delivery-receipt handling runs.
+    private static let deliveryReceiptTimeout: TimeInterval = 5
     /// Outer size ceiling for a downloaded attachment. `UNNotificationAttachment` still
     /// enforces Apple's stricter per-type limits (image 10 MB / audio 5 MB / video 50 MB).
     private static let maxAttachmentBytes: Int64 = 50 * 1024 * 1024
@@ -189,11 +193,15 @@ public enum AppPushServiceExtension {
     ) {
         let deliver = DeliverOnce(contentHandler)
         let userInfo = request.content.userInfo
+        // One shared deadline for everything below — the delivery-receipt attempt and
+        // the attachment downloads split the same budget instead of each getting their
+        // own, so the two together can never exceed maxProcessingTime.
+        let deadline = Date().addingTimeInterval(maxProcessingTime)
 
         applyTextOverrides(to: content, userInfo: userInfo)
         applyBadge(to: content, userInfo: userInfo)
         registerActionCategory(to: content, userInfo: userInfo)
-        recordDeliveryReceipt(userInfo: userInfo)
+        recordDeliveryReceipt(userInfo: userInfo, timeBudget: max(0, deadline.timeIntervalSinceNow))
 
         let urls = attachmentURLs(from: userInfo)
         guard !urls.isEmpty else {
@@ -201,7 +209,6 @@ public enum AppPushServiceExtension {
             return
         }
 
-        let deadline = Date().addingTimeInterval(maxProcessingTime)
         let group = DispatchGroup()
         let collector = AttachmentCollector()
 
@@ -390,25 +397,49 @@ public enum AppPushServiceExtension {
 
     // MARK: Delivery receipt
 
-    /// Persist a delivery receipt to the App Group shared queue. The main app drains it
-    /// on next foreground via `AppsOnAirEventQueue.drainSharedExtensionQueue()`.
-    ///
-    /// NOTE: a direct `POST /events/delivered` from the NSE process is intentionally NOT
-    /// performed here — it needs the resolved backend base URL + auth token, which are
-    /// not available to the extension yet. Wire it in once that contract exists.
-    private static func recordDeliveryReceipt(userInfo: [AnyHashable: Any]) {
+    /// Report a delivery receipt — tries a direct `POST /v1/events/delivered` from the
+    /// NSE process first (near-real-time, matches how OneSignal's NSE fires its
+    /// `report_received` confirmation synchronously), and only falls back to queuing in
+    /// the App Group — for `AppsOnAirEventQueue.drainSharedExtensionQueue()` to retry on
+    /// next app foreground — when the direct attempt can't be made or fails:
+    ///   • App Group not resolvable at all → nothing persisted either; there is no
+    ///     `appId` / `subscriptionId` source without it (STEP 4 not done).
+    ///   • App Group resolvable but `appId` / `subscriptionId` not yet written (e.g. the
+    ///     host app has never launched) → queued for later, once they exist.
+    ///   • Direct POST attempted but failed (offline, timeout, non-2xx) → queued.
+    private static func recordDeliveryReceipt(userInfo: [AnyHashable: Any], timeBudget: TimeInterval) {
         let notificationId = (userInfo[PayloadKey.notificationId] as? String)
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let sendId = (userInfo[PayloadKey.sendId] as? String)
             .flatMap { $0.isEmpty ? nil : $0 }
 
         guard let groupId = resolveAppGroupId(),
               let defaults = UserDefaults(suiteName: groupId) else {
-            NSLog("[AppPushService NSE] App Group not resolvable — delivery receipt NOT persisted. " +
+            NSLog("[AppPushService NSE] App Group not resolvable — delivery receipt NOT sent or persisted. " +
                   "Add 'AppsOnAirAppGroup' to the NSE Info.plist (STEP 4).")
             return
         }
 
-        let subscriptionId = defaults.string(forKey: SharedKey.subscriptionId)
+        let appId          = defaults.string(forKey: SharedKey.appId).flatMap { $0.isEmpty ? nil : $0 }
+        let subscriptionId = defaults.string(forKey: SharedKey.subscriptionId).flatMap { $0.isEmpty ? nil : $0 }
         let deviceId       = defaults.string(forKey: SharedKey.deviceId)
+
+        if let appId, let subscriptionId {
+            let sent = sendDeliveryReceiptDirect(
+                appId: appId,
+                subscriptionId: subscriptionId,
+                notificationId: notificationId ?? "",
+                sendId: sendId ?? "",
+                timeBudget: timeBudget
+            )
+            if sent {
+                NSLog("[AppPushService NSE] Delivery receipt sent directly. notificationId=%@", notificationId ?? "nil")
+                return
+            }
+            NSLog("[AppPushService NSE] Direct delivery receipt failed — falling back to queue.")
+        } else {
+            NSLog("[AppPushService NSE] appId/subscriptionId not yet in App Group — falling back to queue.")
+        }
 
         var queue = defaults.array(forKey: SharedKey.nseEventQueue) as? [[String: Any]] ?? []
         queue.append([
@@ -416,6 +447,7 @@ public enum AppPushServiceExtension {
             "notification_id": notificationId ?? "",
             "subscription_id": subscriptionId ?? "",
             "device_id":       deviceId ?? "",
+            "send_id":         sendId ?? "",
             "timestamp":       Date().timeIntervalSince1970,
         ])
         // Bound growth if the app is never reopened.
@@ -425,6 +457,71 @@ public enum AppPushServiceExtension {
         NSLog("[AppPushService NSE] Delivery receipt queued. notificationId=%@ queueSize=%d",
               notificationId ?? "nil", queue.count)
     }
+
+    /// Best-effort, blocking `POST /v1/events/delivered` sent directly from the NSE
+    /// process, before `contentHandler` hands the notification back to iOS. Blocked on a
+    /// semaphore for at most `min(deliveryReceiptTimeout, timeBudget)` so it can never
+    /// blow through the caller's overall processing deadline. Returns `false` (never
+    /// throws) on any failure — offline, timeout, or a non-2xx response — so the caller
+    /// can fall back to the App Group queue.
+    ///
+    /// Endpoint/body literals are duplicated from `EnvironmentConfig` /
+    /// `AppsOnAirEventsAPI` in the main `AppsOnAirPush` target: the NSE target has zero
+    /// package dependencies (not even on the main target, see Package.swift) and cannot
+    /// import them. Keep in sync manually, same as `SharedKey` below.
+    private static func sendDeliveryReceiptDirect(
+        appId: String,
+        subscriptionId: String,
+        notificationId: String,
+        sendId: String,
+        timeBudget: TimeInterval
+    ) -> Bool {
+        guard timeBudget > 0.5, let url = URL(string: eventDeliveredURLString) else { return false }
+
+        let body: [String: Any] = [
+            "subscription_id": subscriptionId,
+            "notification_id": notificationId,
+            "send_id":         sendId
+        ]
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
+            return false
+        }
+
+        let timeout = min(deliveryReceiptTimeout, timeBudget)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(appId, forHTTPHeaderField: "X-App-Id")
+        request.httpBody = httpBody
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeout
+        config.timeoutIntervalForResource = timeout
+        config.waitsForConnectivity = false
+        let session = URLSession(configuration: config)
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var succeeded = false
+        let task = session.dataTask(with: request) { _, response, error in
+            defer { semaphore.signal() }
+            guard error == nil, let http = response as? HTTPURLResponse else {
+                NSLog("[AppPushService NSE] POST /v1/events/delivered failed: %@",
+                      error?.localizedDescription ?? "unknown error")
+                return
+            }
+            succeeded = (200..<300).contains(http.statusCode)
+            NSLog("[AppPushService NSE] POST /v1/events/delivered HTTP %d", http.statusCode)
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + timeout)
+        session.finishTasksAndInvalidate()
+        return succeeded
+    }
+
+    /// `POST /v1/events/delivered` — duplicated from `EnvironmentConfig.eventDelivered`
+    /// in the main target (see `sendDeliveryReceiptDirect`). Keep in sync manually.
+    private static let eventDeliveredURLString = "https://push.dev.appsonair.com/v1/events/delivered"
 
     /// 1) `AppsOnAirAppGroup` string in the NSE's Info.plist (authoritative).
     /// 2) Convention fallback: `group.<main-app-bundle-id>.appsonair`, derived by dropping
@@ -592,6 +689,7 @@ public enum AppPushServiceExtension {
     /// APNs data-payload keys read by the extension.
     private enum PayloadKey {
         static let notificationId  = "notification_id"
+        static let sendId          = "send_id"
         static let title           = "title"
         static let body            = "body"
         static let subtitle        = "subtitle"

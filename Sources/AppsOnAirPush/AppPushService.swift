@@ -1030,6 +1030,7 @@ public final class AppPushService: NSObject {
 
     public static func handleWillPresent(notification: UNNotification) -> UNNotificationPresentationOptions {
         let push = PushNotification.from(notification.request.content)
+        log("Notification received (foreground). payload=\(notification.request.content)", level: .debug)
         registerActionCategoryIfNeeded(for: notification.request.content)
         let event = NotificationWillDisplayEvent(notification: push)
         // Fire all foreground lifecycle listeners — any one can call preventDefault()
@@ -1158,17 +1159,19 @@ public final class AppPushService: NSObject {
         }
 
         // Enqueue click/open event — sent to backend on next flush.
-        // TODO: API — POST /events/opened or /events/clicked (see AppsOnAirEventQueue)
+        // Body tap (actionId == nil) → POST /v1/events/opened.
+        // Action-button tap (actionId set) → POST /v1/events/clicked (see AppsOnAirEventQueue).
         AppsOnAirEventQueue.shared.enqueue(PushEvent(
             type: actionId == nil ? .opened : .clicked,
             notificationId: push.id,
             subscriptionId: subscriptionId,
-            actionId: actionId
+            actionId: actionId,
+            sendId: push.sendId
         ))
         log(
             "Notification \(actionId == nil ? "opened" : "clicked (action: \(actionId!))")." +
             " notifId=\(push.id ?? "nil") subscriptionId=\(subscriptionId ?? "nil")" +
-            " [TODO] POST /events/\(actionId == nil ? "opened" : "clicked")",
+            " sendId=\(push.sendId ?? "nil")",
             level: .info
         )
     }
@@ -1183,7 +1186,7 @@ public final class AppPushService: NSObject {
         _ userInfo: [AnyHashable: Any],
         fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        log("Silent push received.", level: .debug)
+        log("Silent push received. payload=\(userInfo)", level: .debug)
         if let handler = onSilentPushReceived {
             handler(userInfo, completion)
         } else {

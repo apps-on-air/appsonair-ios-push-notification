@@ -3,7 +3,7 @@ Pod::Spec.new do |s|
   # Source of truth for the runtime SDK version — AppsOnAirDeviceInfo.sdkVersion
   # reads this back via SdkManager (org.cocoapods.AppsOnAir-AppPush). Keep
   # AppsOnAirDeviceInfo.fallbackSDKVersion in sync for the SPM-as-source case.
-  s.version          = '0.0.2-alpha'
+  s.version          = '0.0.3-alpha'
   s.summary          = 'AppsOnAir Push Notifications SDK for iOS'
   s.description      = <<-DESC
     Lightweight iOS push notification SDK using APNs directly. No Firebase dependency.

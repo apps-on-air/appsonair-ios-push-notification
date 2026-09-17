@@ -101,6 +101,9 @@ public struct PushNotification: @unchecked Sendable {
     public let templateId: String?
     /// "sent_at" — server send time, ISO-8601 string exactly as received.
     public let sentAt: String?
+    /// "send_id" — identifies this specific dispatch of the notification.
+    /// Required by the open/click and delivery event APIs. Nil if not present.
+    public let sendId: String?
 
     public let title: String?
     /// "subtitle" — iOS second line above the body.
@@ -193,6 +196,7 @@ public struct PushNotification: @unchecked Sendable {
             campaignId: str("campaign_id"),
             templateId: str("template_id"),
             sentAt: str("sent_at"),
+            sendId: str("send_id"),
             title: nonEmpty(renderedTitle) ?? str("title"),
             subtitle: nonEmpty(renderedSubtitle) ?? str("subtitle"),
             body: nonEmpty(renderedBody) ?? str("body"),
@@ -357,12 +361,17 @@ public struct PushEvent: Codable {
     public let timestamp: TimeInterval
     /// Per-install device ID, from `AppPushService.deviceId` (AppsOnAir_Core).
     public let deviceId: String
+    /// "send_id" from the push payload — identifies this specific dispatch of the
+    /// notification. Required by `POST /v1/events/delivered`. Nil for event types
+    /// that don't carry one.
+    public let sendId: String?
 
     init(
         type: PushEventType,
         notificationId: String? = nil,
         subscriptionId: String? = nil,
-        actionId: String? = nil
+        actionId: String? = nil,
+        sendId: String? = nil
     ) {
         self.type = type
         self.notificationId = notificationId
@@ -372,6 +381,7 @@ public struct PushEvent: Codable {
         // AppPushService.deviceId is nonisolated and synchronous, so it is safe to
         // read here regardless of actor context.
         self.deviceId = AppPushService.deviceId
+        self.sendId = sendId
     }
 
     /// Full initializer — used when replaying an event captured in another process
@@ -383,7 +393,8 @@ public struct PushEvent: Codable {
         subscriptionId: String?,
         actionId: String?,
         timestamp: TimeInterval,
-        deviceId: String
+        deviceId: String,
+        sendId: String? = nil
     ) {
         self.type = type
         self.notificationId = notificationId
@@ -391,5 +402,6 @@ public struct PushEvent: Codable {
         self.actionId = actionId
         self.timestamp = timestamp
         self.deviceId = deviceId
+        self.sendId = sendId
     }
 }
