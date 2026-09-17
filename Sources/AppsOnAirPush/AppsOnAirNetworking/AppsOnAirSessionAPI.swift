@@ -45,10 +45,10 @@ enum AppsOnAirSessionAPI {
     //   ------------------------------------------------------------
     //   URL     : ...
     //   ============================================================
-    private static let logDivider = String(repeating: "=", count: 60)
-    private static let logRule = String(repeating: "-", count: 60)
+    nonisolated private static let logDivider = String(repeating: "=", count: 60)
+    nonisolated private static let logRule = String(repeating: "-", count: 60)
 
-    private static func logBlock(_ title: String, _ lines: [String]) {
+    nonisolated private static func logBlock(_ title: String, _ lines: [String]) {
         print(logDivider)
         print("[AppsOnAirSessionAPI] \(title)")
         print(logRule)
