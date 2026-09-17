@@ -176,6 +176,11 @@ final class AppsOnAirSessionManager {
     private func handleDidBecomeActive() {
         defer { backgroundedAt = nil }
 
+        // Drain any opened/clicked/delivered events queued while the app was
+        // backgrounded (or before this launch's first activation) — see
+        // AppsOnAirEventQueue's "flush on session start / app foreground" contract.
+        AppsOnAirEventQueue.shared.flush()
+
         guard let backgroundedAt else {
             // Cold launch: the register (or a queued start-session) call already
             // opened this launch's session — nothing to reconcile here.
