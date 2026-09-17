@@ -3,142 +3,235 @@ import UIKit
 
 // MARK: - AppsOnAirSessionManager
 //
-// Tracks app session lifecycle for MAU metering and segment filter data.
-// Observes UIApplication foreground/background transitions via NotificationCenter.
+// Owns the SDK-side session lifecycle per the Session Tracking API contract
+// (docs/Session Tracking API — contract for SDK review.md). The backend never
+// closes a session on its own — no timeout, no reaper — so the SDK alone
+// decides when a session starts and ends, from UIApplication foreground/
+// background transitions:
 //
-// Scope §3.9: MAU = a user with ≥1 session in trailing 30 days.
-// Scope §3.2: Segment filters — first_session, last_session, session_count, session_time.
+//   • App backgrounds → PATCH /v1/sessions/{id} (End Session) using the
+//     currently stored sessionId, with "now" as endedAt.
+//   • App foregrounds → if the app was backgrounded for more than
+//     `foregroundThreshold`, POST /v1/sessions (Start Session) for a fresh
+//     session and replace the stored sessionId/startedAt; otherwise the
+//     existing session carries on untouched — no call.
 //
-// Session data is persisted in UserDefaults and included in the registration/update
-// payload sent to the backend on every session start.
+// The first session of a launch comes from the /v1/subscriptions register
+// response, which already starts a session — see `adopt(sessionId:startedAt:)`,
+// called from AppPushService once that response is parsed. This manager only
+// reacts to backgrounding/foregrounding after that.
 //
-// USAGE: Called once from AppPushService.initialize().
+// Reopen cleanup: if a `sessionId` survives from a previous run (the app was
+// killed/crashed while backgrounded, so its End Session PATCH never landed),
+// `endStaleSessionIfNeeded(completion:)` closes it before the new launch
+// registers — see `AppPushService.registerSubscriptionIfReady`.
+//
+// USAGE: `start()` called once from AppPushService.initialize().
 
 @MainActor
 final class AppsOnAirSessionManager {
 
     static let shared = AppsOnAirSessionManager()
 
-    private let keyFirstSession = "com.appsonair.push.firstSession"   // epoch Double
-    private let keyLastSession  = "com.appsonair.push.lastSession"    // epoch Double
-    private let keySessionCount = "com.appsonair.push.sessionCount"   // Int
-    private let keyTotalTime    = "com.appsonair.push.totalSessionTime" // TimeInterval (seconds)
+    /// Background time under which a return to foreground reuses the existing
+    /// session instead of starting a new one (Session Tracking API contract).
+    private let foregroundThreshold: TimeInterval = 30
 
-    private var sessionStartTime: Date? = nil
+    /// Timestamp of the most recent `didEnterBackground`. Cleared once consumed
+    /// on the next `didBecomeActive`, so a cold launch's first activation (where
+    /// this is nil) is never mistaken for a background return.
+    private var backgroundedAt: Date?
 
-    // MARK: - Computed accessors (read from UserDefaults)
-
-    var firstSession: Date? {
-        let ts = UserDefaults.standard.double(forKey: keyFirstSession)
-        return ts > 0 ? Date(timeIntervalSince1970: ts) : nil
-    }
-
-    var lastSession: Date? {
-        let ts = UserDefaults.standard.double(forKey: keyLastSession)
-        return ts > 0 ? Date(timeIntervalSince1970: ts) : nil
-    }
-
-    /// Number of times the app has been foregrounded (all time).
-    var sessionCount: Int { UserDefaults.standard.integer(forKey: keySessionCount) }
-
-    /// Cumulative foreground time in seconds across all sessions.
-    var totalSessionTime: TimeInterval { UserDefaults.standard.double(forKey: keyTotalTime) }
+    /// Background task assertion started on `didEnterBackground` so the End
+    /// Session PATCH gets a few extra seconds to leave the device before iOS
+    /// suspends the process.
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     private init() {}
 
+    // MARK: - Eye-catching milestone log
+    //
+    // Session start/end are the events worth spotting at a glance while
+    // scrolling a noisy console, so they get '='-ruled banners instead of a
+    // plain `AppPushService.log` line.
+    //   ============================================================
+    //   [SessionManager] ★ SESSION STARTED
+    //   sessionId=... startedAt=...
+    //   ============================================================
+    private static func logMilestone(_ title: String, _ detail: String) {
+        let divider = String(repeating: "=", count: 60)
+        print(divider)
+        print("[SessionManager] ★ \(title)")
+        print(detail)
+        print(divider)
+    }
+
     // MARK: - Start
 
-    /// Register for UIApplication lifecycle notifications and record the launch as a session.
+    /// Register for UIApplication background/foreground notifications.
     /// Call once from AppPushService.initialize().
     func start() {
         let center = NotificationCenter.default
 
-        // didBecomeActive fires on first launch AND every time the app returns from background.
-        center.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.recordSessionStart() }
-        }
-
-        // didEnterBackground fires when the user presses Home or switches apps.
         center.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.recordSessionEnd() }
+            Task { @MainActor [weak self] in self?.handleDidEnterBackground() }
         }
 
-        // configure() is called at launch — count as the first session start immediately.
-        // (didBecomeActive will also fire shortly after, but start() may be called before it.)
-        recordSessionStart()
-        AppPushService.log(
-            "SessionManager: started. sessionCount=\(sessionCount) " +
-            "firstSession=\(firstSession.map { "\($0)" } ?? "nil")",
-            level: .debug
-        )
+        center.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.handleDidBecomeActive() }
+        }
+
+        AppPushService.log("SessionManager: started.", level: .debug)
     }
 
-    // MARK: - Session events (private)
+    // MARK: - Adopt a session
 
-    private func recordSessionStart() {
-        let now = Date()
-        // Avoid double-counting if didBecomeActive fires right after start()
-        if let previous = sessionStartTime, Date().timeIntervalSince(previous) < 2 { return }
-        sessionStartTime = now
+    /// Persist a session the backend handed back — the `/v1/subscriptions`
+    /// register response, or a `POST /v1/sessions` response. Replaces whatever
+    /// session was stored before.
+    func adopt(sessionId: String, startedAt: TimeInterval) {
+        guard !sessionId.isEmpty else { return }
+        AppPushService.shared.storage.saveSession(id: sessionId, startedAt: startedAt)
+        Self.logMilestone("SESSION STARTED", "sessionId=\(sessionId) startedAt=\(startedAt)")
+    }
 
-        // Record first_session on very first app launch.
-        if UserDefaults.standard.double(forKey: keyFirstSession) == 0 {
-            UserDefaults.standard.set(now.timeIntervalSince1970, forKey: keyFirstSession)
-            AppPushService.log("SessionManager: first session recorded.", level: .info)
+    // MARK: - Reopen cleanup
+
+    /// Close a session left open from a previous run before this launch
+    /// registers and opens a new one — a leftover `sessionId` means the app
+    /// was killed/crashed while backgrounded, so `handleDidEnterBackground`'s
+    /// End Session PATCH never fired (or never landed). `completion` always
+    /// runs, whether or not there was a stale session to close, so the caller
+    /// can chain the register call unconditionally.
+    func endStaleSessionIfNeeded(completion: @escaping @MainActor () -> Void) {
+        guard let staleSessionId = AppPushService.shared.storage.sessionId, !staleSessionId.isEmpty else {
+            completion()
+            return
         }
 
-        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: keyLastSession)
-        let count = UserDefaults.standard.integer(forKey: keySessionCount) + 1
-        UserDefaults.standard.set(count, forKey: keySessionCount)
-
         AppPushService.log(
-            "SessionManager: session started. count=\(count)",
+            "SessionManager: stale session \(staleSessionId) found on reopen — ending before register.",
             level: .debug
         )
+        AppsOnAirSessionAPI.endSession(
+            sessionId: staleSessionId,
+            endedAt: Date().timeIntervalSince1970,
+            startedAt: AppPushService.shared.storage.sessionStartedAt // TEMP: debug-log only
+        ) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if let error {
+                AppPushService.log("SessionManager: stale session end error: \(error.localizedDescription)", level: .warn)
+            } else {
+                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                Self.logMilestone("STALE SESSION ENDED", "sessionId=\(staleSessionId) status=\(status) response=\(bodyText)")
+            }
+            completion()
+        }
+    }
 
-        // Enqueue a session ping so the backend can count this as a MAU event.
-        // Also flush any pending events (opened, clicked, delivered) from previous sessions.
-        // TODO: API — POST /sessions (see AppsOnAirEventQueue.sendSessionPing)
-        AppsOnAirEventQueue.shared.enqueue(PushEvent(
-            type: .sessionStart,
-            subscriptionId: AppPushService.subscriptionId
-        ))
+    // MARK: - Lifecycle handlers
+
+    /// App entered background — stamp the moment and close the open session, if any.
+    private func handleDidEnterBackground() {
+        backgroundedAt = Date()
+
+        guard let sessionId = AppPushService.shared.storage.sessionId else {
+            AppPushService.log("SessionManager: no active session to end on background.", level: .debug)
+            return
+        }
+
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "AppsOnAirEndSession") { [weak self] in
+            self?.finishBackgroundTask()
+        }
+
+        let endedAt = Date().timeIntervalSince1970
+        AppPushService.log("SessionManager: app backgrounded — ending session \(sessionId).", level: .debug)
+
+        AppsOnAirSessionAPI.endSession(
+            sessionId: sessionId,
+            endedAt: endedAt,
+            startedAt: AppPushService.shared.storage.sessionStartedAt // TEMP: debug-log only
+        ) { [weak self] data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            if let error {
+                AppPushService.log("SessionManager: end session error: \(error.localizedDescription)", level: .warn)
+            } else {
+                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                Self.logMilestone("SESSION ENDED", "sessionId=\(sessionId) status=\(status) response=\(bodyText)")
+            }
+            self?.finishBackgroundTask()
+        }
+    }
+
+    /// App returned to foreground — decide whether the elapsed background time
+    /// warrants a fresh session, per the Session Tracking API contract.
+    private func handleDidBecomeActive() {
+        defer { backgroundedAt = nil }
+
+        // Drain any opened/clicked/delivered events queued while the app was
+        // backgrounded (or before this launch's first activation) — see
+        // AppsOnAirEventQueue's "flush on session start / app foreground" contract.
         AppsOnAirEventQueue.shared.flush()
-    }
 
-    private func recordSessionEnd() {
-        guard let start = sessionStartTime else { return }
-        let duration = Date().timeIntervalSince(start)
-        sessionStartTime = nil
+        guard let backgroundedAt else {
+            // Cold launch: the register (or a queued start-session) call already
+            // opened this launch's session — nothing to reconcile here.
+            return
+        }
 
-        let total = UserDefaults.standard.double(forKey: keyTotalTime) + duration
-        UserDefaults.standard.set(total, forKey: keyTotalTime)
+        let elapsed = Date().timeIntervalSince(backgroundedAt)
+        guard elapsed > foregroundThreshold else {
+            AppPushService.log(
+                "SessionManager: foregrounded after \(Int(elapsed))s — reusing existing session.",
+                level: .debug
+            )
+            return
+        }
 
         AppPushService.log(
-            "SessionManager: session ended. duration=\(Int(duration))s totalTime=\(Int(total))s",
+            "SessionManager: foregrounded after \(Int(elapsed))s — starting a new session.",
             level: .debug
         )
+
+        AppsOnAirNetworkMonitor.runWhenConnected {
+            AppsOnAirSessionAPI.startSession { data, response, error in
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if let error {
+                    AppPushService.log("SessionManager: start session error: \(error.localizedDescription)", level: .warn)
+                    return
+                }
+                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                AppPushService.log("SessionManager: start session HTTP \(status): \(bodyText)", level: .info)
+
+                guard (200..<300).contains(status),
+                      let data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let sessionId = json["sessionId"] as? String, !sessionId.isEmpty,
+                      let startedAt = json["startedAt"] as? Double else {
+                    AppPushService.log(
+                        "SessionManager: start session response missing sessionId/startedAt — keeping previous session.",
+                        level: .warn
+                    )
+                    return
+                }
+
+                AppPushService.shared.storage.clearSession()
+                AppsOnAirSessionManager.shared.adopt(sessionId: sessionId, startedAt: startedAt)
+            }
+        }
     }
 
-    // MARK: - Payload snapshot
-
-    /// All session fields as a dictionary for inclusion in registration/update payloads.
-    func asPayloadDict() -> [String: Any] {
-        let iso = ISO8601DateFormatter()
-        var dict: [String: Any] = [
-            "session_count":    sessionCount,
-            "session_time_sec": Int(totalSessionTime)
-        ]
-        if let first = firstSession { dict["first_session"] = iso.string(from: first) }
-        if let last  = lastSession  { dict["last_session"]  = iso.string(from: last)  }
-        return dict
+    private func finishBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 }

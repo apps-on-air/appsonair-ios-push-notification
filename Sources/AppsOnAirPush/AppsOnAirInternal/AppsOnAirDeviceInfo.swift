@@ -29,17 +29,19 @@ enum AppsOnAirDeviceInfo {
     // MARK: - Static fields
 
     /// CocoaPods pod name / SPM product name — the key `SdkManager` looks up.
-    private static let sdkName = "AppPushService"
+    /// Must match `s.name` in `AppsOnAir-AppPush.podspec`; never any other
+    /// AppsOnAir SDK's pod name (e.g. `AppsOnAir-Core`).
+    private static let sdkName = "AppsOnAir-AppPush"
 
     /// Used only when the installed package ships no version metadata (e.g. SPM
     /// added as source with no resource bundle). Keep in sync with
     /// `AppPushService.podspec` `s.version` on every release.
-    private static let fallbackSDKVersion = "0.0.1"
+    private static let fallbackSDKVersion = "0.0.3-alpha"
 
     /// SDK version, resolved at runtime from the installed package rather than
     /// hard-coded here:
-    ///   • CocoaPods — `CFBundleShortVersionString` of the `AppPushService` pod
-    ///     framework (`org.cocoapods.AppPushService`), i.e. the `.podspec` version.
+    ///   • CocoaPods — `CFBundleShortVersionString` of the `AppsOnAir-AppPush` pod
+    ///     framework (`org.cocoapods.AppsOnAir-AppPush`), i.e. the `.podspec` version.
     ///   • SPM — the SDK bundle's `CFBundleShortVersionString` when the package is
     ///     consumed as a framework / xcframework.
     /// Delegated to AppsOnAir_Core's `SdkManager`, which walks the same bundle
@@ -110,12 +112,50 @@ enum AppsOnAirDeviceInfo {
         return parseBuildNumber(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "")
     }
 
+    /// Cached result of `computeIsJailbroken()`, filled in by `primeJailbreakCheck()`.
+    /// Defaults to `false` (untampered) until that completes.
+    private static var cachedIsJailbroken = false
+
+    /// Run the jailbreak heuristic off the main thread and cache the result for
+    /// `isJailbroken` to read synchronously. Call once from
+    /// `AppPushService.initialize()`, alongside `prime()`.
+    ///
+    /// The check includes writing a probe file to `/private/…` — outside the
+    /// app's sandbox — and catching the expected failure. On a real device that
+    /// sandbox violation is logged by the OS and, with a debugger attached, can
+    /// visibly stall the thread it runs on for a second or more. Running it
+    /// synchronously on the main actor during `subscriptionBody()` (i.e. at
+    /// launch, exactly when the app is also showing the permission prompt) is
+    /// what produced the "app freezes for a couple seconds at launch" symptom —
+    /// hence computing it off-thread here instead.
+    static func primeJailbreakCheck() {
+        #if targetEnvironment(simulator)
+        // isJailbroken already reads false unconditionally on simulator.
+        #else
+        Task.detached(priority: .utility) {
+            let result = computeIsJailbroken()
+            await MainActor.run { AppsOnAirDeviceInfo.cachedIsJailbroken = result }
+        }
+        #endif
+    }
+
     /// Heuristic jailbreak check — NOT a security guarantee. Used for segmentation only.
-    /// Returns false on simulator always. (Push-owned — Core does not provide this.)
+    /// Returns false on simulator always, and false on device until
+    /// `primeJailbreakCheck()`'s background check completes. (Push-owned — Core
+    /// does not provide this.)
     static var isJailbroken: Bool {
         #if targetEnvironment(simulator)
         return false
         #else
+        cachedIsJailbroken
+        #endif
+    }
+
+    /// The actual filesystem heuristic — moved out of `isJailbroken` so it can run
+    /// off the main actor. Not annotated `@MainActor`-isolated (the enclosing type
+    /// is, but this body touches no UIKit / main-actor state), so `Task.detached`
+    /// can call it from a background thread.
+    nonisolated private static func computeIsJailbroken() -> Bool {
         let paths = [
             "/Applications/Cydia.app",
             "/Library/MobileSubstrate/MobileSubstrate.dylib",
@@ -130,7 +170,6 @@ enum AppsOnAirDeviceInfo {
             try FileManager.default.removeItem(atPath: probe)
             return true
         } catch { return false }
-        #endif
     }
 
     // MARK: - Core device metadata
@@ -193,18 +232,17 @@ enum AppsOnAirDeviceInfo {
     // MARK: - Registration payload
 
     /// Full subscription registration payload.
-    /// Merge with session data from AppsOnAirSessionManager.shared.asPayloadDict() before POSTing.
     ///
     /// TODO: API — POST /subscriptions
     /// When to call:
     ///   1. After configure() + handleAPNsToken() fires (new/refreshed subscription)
-    ///   2. On session start in AppsOnAirEventQueue.sendSessionPing() (subscription update)
+    ///   2. On session start (subscription update)
     ///
     /// Endpoint:  POST <base_url>/subscriptions
     /// Headers:
     ///   Authorization: Bearer <sdk_api_key>
     ///   Content-Type:  application/json
-    /// Body (merge with AppsOnAirSessionManager.shared.asPayloadDict()):
+    /// Body:
     /// {
     ///   "app_id":           "<configured appId>",
     ///   "device_id":        AppPushService.deviceId,   // AppsOnAir_Core per-install device id (AppsOnAirCoreServices.deviceId)
@@ -224,17 +262,13 @@ enum AppsOnAirDeviceInfo {
     ///   "first_install_time": "03-Sep-2025 10:45:30 AM",   // Core deviceInfo["firstInstallTime"]
     ///   "is_opted_out":     false,
     ///   "is_rooted":        false,
-    ///   "is_test_device":   false,
-    ///   "first_session":    "2024-01-15T10:00:00Z",
-    ///   "last_session":     "2024-01-20T14:30:00Z",
-    ///   "session_count":    12,
-    ///   "session_time_sec": 3600
+    ///   "is_test_device":   false
     /// }
     /// Response: { "subscription_id": "<BE-generated UUID>" }
     ///   → call AppPushService.setSubscriptionId(response["subscription_id"])
     static func registrationPayload() -> [String: Any] {
         let s = snapshot
-        var payload: [String: Any] = [
+        let payload: [String: Any] = [
             "sdk_version":       sdkVersion,
             "app_version":       s.primed ? s.appVersion
                                           : (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""),
@@ -253,8 +287,6 @@ enum AppsOnAirDeviceInfo {
             "is_test_device":    AppPushService.isTestDevice,
             "apns_environment":  AppPushService.apnsEnvironment.rawValue
         ]
-        // Merge session fields (first_session, last_session, session_count, session_time_sec)
-        AppsOnAirSessionManager.shared.asPayloadDict().forEach { payload[$0.key] = $0.value }
 
         if !s.primed {
             AppPushService.log("DeviceInfo: payload assembled before AppsOnAir_Core primed — using Bundle/UIDevice fallbacks.", level: .warn)

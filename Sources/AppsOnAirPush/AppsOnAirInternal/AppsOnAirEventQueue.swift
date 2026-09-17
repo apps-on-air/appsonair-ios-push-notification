@@ -10,7 +10,7 @@ import Foundation
 // Scope §3.4: "SDK reports a delivery receipt (notification ID + subscription ID) back."
 //
 // HOW IT WORKS:
-//   1. SDK calls enqueue() when a click, open, delivery, or session event occurs.
+//   1. SDK calls enqueue() when a click, open, or delivery event occurs.
 //   2. On session start (app foreground), flush() drains the queue in order.
 //   3. Each sendEvent() stub logs the payload and returns true (success).
 //   4. Replace each stub with a real URLSession HTTP call once BE API is ready.
@@ -119,7 +119,8 @@ final class AppsOnAirEventQueue {
                 subscriptionId: nonEmpty("subscription_id"),
                 actionId: nil,
                 timestamp: entry["timestamp"] as? TimeInterval ?? Date().timeIntervalSince1970,
-                deviceId: nonEmpty("device_id") ?? fallbackDeviceId
+                deviceId: nonEmpty("device_id") ?? fallbackDeviceId,
+                sendId: nonEmpty("send_id")
             ))
         }
         defaults.removeObject(forKey: nseQueueKey)
@@ -145,93 +146,165 @@ final class AppsOnAirEventQueue {
                 level: .debug
             )
             return true
-        case .sessionStart:
-            return await sendSessionPing(event)
         }
     }
 
     private func sendOpenEvent(_ event: PushEvent) async -> Bool {
-        // TODO: API — POST /events/opened  (endpoint: /events/clicked when actionId != nil)
-        //
-        // let url = URL(string: "\(baseURL)/events/\(event.actionId == nil ? "opened" : "clicked")")!
-        // var request = URLRequest(url: url)
-        // request.httpMethod = "POST"
-        // request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // request.setValue("Bearer \(sdkApiKey)", forHTTPHeaderField: "Authorization")
-        // request.httpBody = try? JSONSerialization.data(withJSONObject: [
-        //     "app_id":          configuredAppId,
-        //     "notification_id": event.notificationId ?? "",
-        //     "subscription_id": event.subscriptionId ?? "",
-        //     "device_id":       event.deviceId,
-        //     "action_id":       event.actionId as Any,  // null = body tap
-        //     "timestamp":       ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: event.timestamp))
-        // ])
-        // // On 2xx → return true (remove from queue)
-        // // On 4xx → return true (bad payload, don't retry)
-        // // On 5xx / network error → return false (retry on next flush)
-        //
-        let endpoint = event.actionId == nil ? "opened" : "clicked"
-        AppPushService.log(
-            "EventQueue: [TODO] POST /events/\(endpoint) " +
-            "notifId=\(event.notificationId ?? "nil") " +
-            "subscriptionId=\(event.subscriptionId ?? "nil") " +
-            "actionId=\(event.actionId ?? "(body tap)")",
-            level: .info
-        )
-        return true // Stub — remove when BE API is ready
+        // Body tap → POST /v1/events/opened. Action-button tap → POST /v1/events/clicked.
+        guard let actionId = event.actionId else {
+            return await sendOpenedReceipt(event)
+        }
+        return await sendClickedReceipt(event, actionId: actionId)
     }
 
+    /// POST /v1/events/opened — sent once the user taps a notification's body.
+    ///
+    /// Gated on connectivity like every other SDK network call
+    /// (`AppsOnAirNetworkMonitor.isConnected`) — offline, the event stays queued and is
+    /// retried on the next flush instead of failing the request. `AppsOnAirEventsAPI`
+    /// only builds/sends the request; the success/retry decision is made here:
+    ///   • 2xx           → true  (remove from queue)
+    ///   • 4xx / no data → true  (bad payload or malformed event — don't retry forever)
+    ///   • 5xx / network error → false (retry on next flush)
+    private func sendOpenedReceipt(_ event: PushEvent) async -> Bool {
+        guard let notificationId = event.notificationId, !notificationId.isEmpty,
+              let subscriptionId = event.subscriptionId, !subscriptionId.isEmpty else {
+            AppPushService.log(
+                "EventQueue: opened event missing notificationId/subscriptionId — dropping.",
+                level: .warn
+            )
+            return true
+        }
+        guard AppsOnAirNetworkMonitor.isConnected else {
+            AppPushService.log("EventQueue: offline — opened receipt deferred.", level: .debug)
+            return false
+        }
+
+        return await withCheckedContinuation { continuation in
+            AppsOnAirEventsAPI.sendOpenedEvent(
+                notificationId: notificationId,
+                subscriptionId: subscriptionId,
+                deviceId: event.deviceId,
+                sendId: event.sendId ?? ""
+            ) { data, response, error in
+                if let error {
+                    AppPushService.log(
+                        "EventQueue: POST /v1/events/opened error: \(error.localizedDescription)",
+                        level: .warn
+                    )
+                    continuation.resume(returning: false)
+                    return
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                AppPushService.log(
+                    "EventQueue: POST /v1/events/opened HTTP \(status) notifId=\(notificationId): \(bodyText)",
+                    level: .info
+                )
+                continuation.resume(returning: (200..<500).contains(status))
+            }
+        }
+    }
+
+    /// POST /v1/events/clicked — sent once the user taps a notification's action button.
+    ///
+    /// Gated on connectivity like every other SDK network call
+    /// (`AppsOnAirNetworkMonitor.isConnected`) — offline, the event stays queued and is
+    /// retried on the next flush instead of failing the request. `AppsOnAirEventsAPI`
+    /// only builds/sends the request; the success/retry decision is made here:
+    ///   • 2xx           → true  (remove from queue)
+    ///   • 4xx / no data → true  (bad payload or malformed event — don't retry forever)
+    ///   • 5xx / network error → false (retry on next flush)
+    private func sendClickedReceipt(_ event: PushEvent, actionId: String) async -> Bool {
+        guard let notificationId = event.notificationId, !notificationId.isEmpty,
+              let subscriptionId = event.subscriptionId, !subscriptionId.isEmpty else {
+            AppPushService.log(
+                "EventQueue: clicked event missing notificationId/subscriptionId — dropping.",
+                level: .warn
+            )
+            return true
+        }
+        guard AppsOnAirNetworkMonitor.isConnected else {
+            AppPushService.log("EventQueue: offline — clicked receipt deferred.", level: .debug)
+            return false
+        }
+
+        return await withCheckedContinuation { continuation in
+            AppsOnAirEventsAPI.sendClickedEvent(
+                notificationId: notificationId,
+                subscriptionId: subscriptionId,
+                actionId: actionId,
+                sendId: event.sendId ?? ""
+            ) { data, response, error in
+                if let error {
+                    AppPushService.log(
+                        "EventQueue: POST /v1/events/clicked error: \(error.localizedDescription)",
+                        level: .warn
+                    )
+                    continuation.resume(returning: false)
+                    return
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                AppPushService.log(
+                    "EventQueue: POST /v1/events/clicked HTTP \(status) notifId=\(notificationId): \(bodyText)",
+                    level: .info
+                )
+                continuation.resume(returning: (200..<500).contains(status))
+            }
+        }
+    }
+
+    /// POST /v1/events/delivered — powers "Delivered" analytics (paid tier only — §3.4, §3.8).
+    ///
+    /// Enqueued by `AppsOnAirNotificationServiceExtension` writing to App Group storage,
+    /// then drained into the persistent queue on next main-app foreground
+    /// (`drainSharedExtensionQueue()`) and sent here.
+    ///
+    /// Gated on connectivity like every other SDK network call
+    /// (`AppsOnAirNetworkMonitor.isConnected`) — offline, the event stays queued and is
+    /// retried on the next flush instead of failing the request. `AppsOnAirEventsAPI`
+    /// only builds/sends the request; the success/retry decision is made here:
+    ///   • 2xx           → true  (remove from queue)
+    ///   • 4xx / no data → true  (bad payload or malformed event — don't retry forever)
+    ///   • 5xx / network error → false (retry on next flush)
     private func sendDeliveryReceipt(_ event: PushEvent) async -> Bool {
-        // TODO: API — POST /events/delivered
-        // This powers "Delivered" analytics (paid tier only — §3.4, §3.8).
-        //
-        // let url = URL(string: "\(baseURL)/events/delivered")!
-        // var request = URLRequest(url: url)
-        // request.httpMethod = "POST"
-        // request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // request.setValue("Bearer \(sdkApiKey)", forHTTPHeaderField: "Authorization")
-        // request.httpBody = try? JSONSerialization.data(withJSONObject: [
-        //     "app_id":          configuredAppId,
-        //     "notification_id": event.notificationId ?? "",
-        //     "subscription_id": event.subscriptionId ?? "",
-        //     "device_id":       event.deviceId,
-        //     "timestamp":       ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: event.timestamp))
-        // ])
-        //
-        // Typically enqueued by AppsOnAirNotificationServiceExtension writing to App Group storage,
-        // then drained here on next main app foreground.
-        AppPushService.log(
-            "EventQueue: [TODO] POST /events/delivered notifId=\(event.notificationId ?? "nil")",
-            level: .info
-        )
-        return true // Stub
-    }
+        guard let notificationId = event.notificationId, !notificationId.isEmpty,
+              let subscriptionId = event.subscriptionId, !subscriptionId.isEmpty else {
+            AppPushService.log(
+                "EventQueue: delivered event missing notificationId/subscriptionId — dropping.",
+                level: .warn
+            )
+            return true
+        }
+        guard AppsOnAirNetworkMonitor.isConnected else {
+            AppPushService.log("EventQueue: offline — delivered receipt deferred.", level: .debug)
+            return false
+        }
 
-    private func sendSessionPing(_ event: PushEvent) async -> Bool {
-        // TODO: API — POST /sessions
-        // Backend counts this as a MAU session (user with ≥1 session in trailing 30 days — §3.9).
-        // Also triggers a subscription metadata update (device model, OS, app version, etc.).
-        //
-        // let url = URL(string: "\(baseURL)/sessions")!
-        // var request = URLRequest(url: url)
-        // request.httpMethod = "POST"
-        // request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // request.setValue("Bearer \(sdkApiKey)", forHTTPHeaderField: "Authorization")
-        // var body: [String: Any] = [
-        //     "app_id":          configuredAppId,
-        //     "subscription_id": event.subscriptionId ?? "",
-        //     "device_id":       event.deviceId,
-        //     "timestamp":       ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: event.timestamp))
-        // ]
-        // // Merge session + device fields for full subscription update
-        // AppsOnAirSessionManager.shared.asPayloadDict().forEach { body[$0.key] = $0.value }
-        // AppsOnAirDeviceInfo.registrationPayload().forEach { body[$0.key] = $0.value }
-        // request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        AppPushService.log(
-            "EventQueue: [TODO] POST /sessions deviceId=\(event.deviceId)",
-            level: .info
-        )
-        return true // Stub
+        return await withCheckedContinuation { continuation in
+            AppsOnAirEventsAPI.sendDeliveredEvent(
+                notificationId: notificationId,
+                subscriptionId: subscriptionId,
+                sendId: event.sendId ?? ""
+            ) { data, response, error in
+                if let error {
+                    AppPushService.log(
+                        "EventQueue: POST /v1/events/delivered error: \(error.localizedDescription)",
+                        level: .warn
+                    )
+                    continuation.resume(returning: false)
+                    return
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                AppPushService.log(
+                    "EventQueue: POST /v1/events/delivered HTTP \(status) notifId=\(notificationId): \(bodyText)",
+                    level: .info
+                )
+                continuation.resume(returning: (200..<500).contains(status))
+            }
+        }
     }
 
     // MARK: - Persistence
