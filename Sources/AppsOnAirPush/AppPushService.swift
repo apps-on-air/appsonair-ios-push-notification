@@ -113,7 +113,7 @@ public final class AppPushService: NSObject {
     // MARK: - Public API
 
     /// Call once at app launch before anything else.
-    /// Renamed from `configure()` to match OneSignal v5 (`OneSignal.initialize`) and Android (`AppPushService.initialize`).
+    /// Renamed from `configure()` to align with Android (`AppPushService.initialize`).
     ///
     /// The app ID is resolved by AppsOnAir_Core from your app target's Info.plist.
     /// Add an `AppsonairAppId` (or legacy `AppsOnAirAPIKey`) String entry:
@@ -121,8 +121,8 @@ public final class AppPushService: NSObject {
     /// In DEBUG builds a missing entry traps — AppsOnAir_Core calls `exit(-1)`.
     ///
     /// The App Group used to share data with the Notification Service Extension
-    /// (delivery receipts, running badge counts) is read from the project itself —
-    /// just like OneSignal — so there is no argument for it. See `resolveAppGroupId()`:
+    /// (delivery receipts, running badge counts) is read from the project itself,
+    /// so there is no argument for it. See `resolveAppGroupId()`:
     ///   1. an `AppsOnAirAppGroup` String in the app's Info.plist;
     ///   2. the convention `group.<main-app-bundle-id>.appsonair`.
     /// The resolved ID still has to be a real App Group enabled on both the app and NSE
@@ -207,7 +207,7 @@ public final class AppPushService: NSObject {
                 AppPushService.clearBadgeOnForegroundIfEnabled()
             }
         }
-        // Cold launch: clear the badge the app was launched with (matches OneSignal).
+        // Cold launch: clear the badge the app was launched with.
         clearBadgeOnForegroundIfEnabled()
 
         // AOA: Swizzler intercepts APNs callbacks automatically — no AppDelegate code needed
@@ -215,7 +215,7 @@ public final class AppPushService: NSObject {
             PushAppDelegateSwizzler.swizzle()
         }
 
-        // AOA: OneSignal-style token acquisition — register with APNs on every
+        // AOA: register with APNs on every
         // launch, independent of notification permission.
         // `registerForRemoteNotifications()` shows no UI and only needs the
         // aps-environment entitlement; iOS returns a device token even when
@@ -241,7 +241,7 @@ public final class AppPushService: NSObject {
         // connectivity via AppsOnAirNetworkMonitor.
         registerSubscriptionIfReady(reason: .initialize)
 
-        // AOA: OneSignal-style — pull the backend's tag set into the local cache
+        // AOA: pull the backend's tag set into the local cache
         // so User.getTags() reads fresh data synchronously. No-ops until a
         // subscriptionId exists (a prior launch's, restored from storage);
         // registerSubscriptionIfReady() triggers it again on first registration.
@@ -335,11 +335,11 @@ public final class AppPushService: NSObject {
         return content.contains("<string>development</string>") ? .sandbox : .production
     }
 
-    // MARK: - Subscription / opt-in state (OneSignal-style)
+    // MARK: - Subscription / opt-in state
 
-    /// Whether the SDK registers with APNs automatically at launch — the
-    /// OneSignal model, where a device token (and a subscription record) is
-    /// acquired regardless of notification permission.
+    /// Whether the SDK registers with APNs automatically at launch, so a
+    /// device token (and a subscription record) is acquired regardless of
+    /// notification permission.
     ///
     /// `true` (default). Set `<key>AppsOnAirDisableAutoRegister</key><true/>` in
     /// the app's Info.plist to opt out and only register after `requestPermission()`.
@@ -777,8 +777,8 @@ public final class AppPushService: NSObject {
     /// GET /v1/subscriptions/<id>/tags and refresh the local tag cache
     /// (`shared.tags`, persisted to UserDefaults) from the backend response.
     ///
-    /// Backs `User.getTags()` — that call returns the cache synchronously (the
-    /// OneSignal model) and schedules this refresh so the next read reflects the
+    /// Backs `User.getTags()` — that call returns the cache synchronously
+    /// and schedules this refresh so the next read reflects the
     /// backend. Same deferral as `syncTagsIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
     /// AppsOnAir_Core reports connectivity. No-ops before `initialize()` (calling
@@ -829,8 +829,7 @@ public final class AppPushService: NSObject {
     }
 
     /// Ask the user for notification permission and register with APNs.
-    /// Renamed from `requestAuthorization()` to match OneSignal v5 (`OneSignal.Notifications.requestPermission`)
-    /// and Android (`AppPushService.Notifications.requestPermission`).
+    /// Renamed from `requestAuthorization()` to align with Android (`AppPushService.Notifications.requestPermission`).
     /// The permission dialog is shown on both device and simulator. On simulator the APNs
     /// device token is unavailable, so a mock token is emitted after the user grants permission.
     public static func requestPermission() {
@@ -875,7 +874,7 @@ public final class AppPushService: NSObject {
 
     /// Link this device to an identified user in your system.
     /// Call after the user signs in. All tags, aliases, and subscription state are associated with this externalId.
-    /// Unlabeled argument to match OneSignal v5 (`OneSignal.login(_:)`).
+    /// Unlabeled argument for a concise call site.
     public static func login(_ externalId: String) {
         guard !externalId.isEmpty else {
             log("login() failed — externalId cannot be empty.", level: .error)
@@ -962,7 +961,7 @@ public final class AppPushService: NSObject {
 
     // MARK: - Badge management
     //
-    // The SDK maintains a running badge count the way OneSignal does, instead of letting
+    // The SDK maintains a running badge count instead of letting
     // every push overwrite the icon with whatever `aps.badge` it carried.
     //
     //   • The Notification Service Extension applies `badge` / `badge_increment` from the
@@ -983,7 +982,7 @@ public final class AppPushService: NSObject {
     /// Controls what the SDK does with the badge when the app is opened.
     ///
     /// - `true` (default): the app-icon badge and the shared running total are reset to
-    ///   `0` every time the app enters the foreground — matches OneSignal's default.
+    ///   `0` every time the app enters the foreground.
     /// - `false`: the badge is **not** cleared on foreground. Instead the SDK subtracts
     ///   `1` from the running total for each notification the user opens, so tapping one
     ///   of several stacked notifications counts it down (5 → 4 → …) instead of zeroing.
@@ -1320,7 +1319,7 @@ public final class AppPushService: NSObject {
 
     // MARK: - Internal helpers
 
-    /// Resolve the App Group ID from the project the same way OneSignal does, in priority order:
+    /// Resolve the App Group ID from the project, in priority order:
     ///   1. `AppsOnAirAppGroup` String in the app's Info.plist.
     ///   2. Convention: `group.<main-app-bundle-id>.appsonair`.
     ///

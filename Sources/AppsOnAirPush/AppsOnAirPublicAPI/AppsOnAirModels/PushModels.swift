@@ -15,7 +15,7 @@ public enum APNsEnvironment: String, Sendable {
 // MARK: - NotificationPermission
 
 /// Native OS notification authorization status.
-/// Mirrors OneSignal v5 `OSNotificationPermission` and iOS `UNAuthorizationStatus`.
+/// Mirrors iOS `UNAuthorizationStatus`.
 public enum NotificationPermission: Int, Sendable {
     case notDetermined = 0
     case denied
@@ -256,7 +256,6 @@ public final class NotificationWillDisplayEvent {
 // MARK: - NotificationClickEvent
 
 /// Details of how the user interacted with the notification.
-/// Mirrors OneSignal v5 `OSNotificationClickResult`.
 public struct NotificationClickResult {
     /// nil = notification body tapped; non-nil = specific action button ID tapped.
     public let actionId: String?
@@ -265,7 +264,6 @@ public struct NotificationClickResult {
 }
 
 /// Passed to click listeners when user taps notification or action button.
-/// Mirrors OneSignal v5 `OSNotificationClickEvent`.
 public struct NotificationClickEvent {
     public let notification: PushNotification
     /// What the user tapped — action button ID and/or launch URL.
@@ -286,7 +284,7 @@ public struct PushSubscriptionChangedState {
 
 // MARK: - UserChangedState
 
-/// Snapshot of the user's identity. Mirrors OneSignal v5 `OSUserState`.
+/// Snapshot of the user's identity.
 public struct UserState {
     /// The external user ID linked via `login(_:)`. nil when anonymous.
     public let externalId: String?
@@ -295,8 +293,7 @@ public struct UserState {
     public let appsOnAirId: String
 }
 
-/// Passed to user-state observers. Mirrors OneSignal v5 `OSUserChangedState`
-/// (access the values via `state.current`).
+/// Passed to user-state observers (access the values via `state.current`).
 public struct UserChangedState {
     public let current: UserState
 }
@@ -312,17 +309,14 @@ public protocol NotificationClickListener: AnyObject {
 }
 
 public protocol NotificationPermissionObserver: AnyObject {
-    /// Matches OneSignal v5 `OSNotificationPermissionObserver.onNotificationPermissionDidChange(_:)`.
     func onNotificationPermissionDidChange(_ permission: Bool)
 }
 
 public protocol PushSubscriptionObserver: AnyObject {
-    /// Matches OneSignal v5 `OSPushSubscriptionObserver.onPushSubscriptionDidChange(state:)`.
     func onPushSubscriptionDidChange(state: PushSubscriptionChangedState)
 }
 
 public protocol UserStateObserver: AnyObject {
-    /// Matches OneSignal v5 `OSUserStateObserver.onUserStateDidChange(state:)`.
     func onUserStateDidChange(state: UserChangedState)
 }
 

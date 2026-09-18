@@ -5,7 +5,6 @@ import Foundation
 extension AppPushService {
 
     /// User identity, tags, language, aliases, email, and SMS management.
-    /// Matches OneSignal.User namespace from OneSignal SDK v5.
     @MainActor
     public enum User {
 
@@ -20,7 +19,6 @@ extension AppPushService {
         // MARK: - Push Subscription
 
         /// This device's push subscription — id, token, opt-in state, and observers.
-        /// Matches OneSignal v5 `OneSignal.User.pushSubscription`.
         public static var pushSubscription: PushSubscription { PushSubscription() }
 
         @MainActor
@@ -30,7 +28,6 @@ extension AppPushService {
 
             /// The AppsOnAir subscription ID for this device.
             /// nil until the backend registers the device via POST /subscriptions.
-            /// Matches OneSignal v5 `pushSubscription.id`.
             public var id: String? { AppPushService.subscriptionId }
 
             /// The current APNs device token (hex string). nil until APNs registers.
@@ -122,7 +119,7 @@ extension AppPushService {
 
         /// The tags currently known for this user, as a `[key: value]` map.
         ///
-        /// Synchronous, like OneSignal's `getTags()` — it reads the local cache.
+        /// Synchronous — it reads the local cache.
         /// The SDK keeps that cache in step with the backend on its own:
         /// `GET /v1/subscriptions/<id>/tags` runs after `initialize()`, right
         /// after the device first registers, and on `login()`, and every
