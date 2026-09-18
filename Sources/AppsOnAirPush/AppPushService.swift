@@ -462,10 +462,9 @@ public final class AppPushService: NSObject {
                         }
 
                         // Registering already counts as a session start (Session Tracking
-                        // API contract) — adopt the sessionId/startedAt returned alongside it.
-                        if let sessionId = json["sessionId"] as? String, !sessionId.isEmpty,
-                           let startedAt = json["startedAt"] as? Double {
-                            AppsOnAirSessionManager.shared.adopt(sessionId: sessionId, startedAt: startedAt)
+                        // API contract) — adopt the sessionId returned alongside it.
+                        if let sessionId = json["sessionId"] as? String, !sessionId.isEmpty {
+                            AppsOnAirSessionManager.shared.adopt(sessionId: sessionId)
                         }
                     } else {
                         print("[AppPushService] /v1/subscriptions 2xx but no subscriptionId in response")

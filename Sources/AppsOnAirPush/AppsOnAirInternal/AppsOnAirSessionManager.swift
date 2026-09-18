@@ -13,11 +13,11 @@ import UIKit
 //     currently stored sessionId, with "now" as endedAt.
 //   • App foregrounds → if the app was backgrounded for more than
 //     `foregroundThreshold`, POST /v1/sessions (Start Session) for a fresh
-//     session and replace the stored sessionId/startedAt; otherwise the
+//     session and replace the stored sessionId; otherwise the
 //     existing session carries on untouched — no call.
 //
 // The first session of a launch comes from the /v1/subscriptions register
-// response, which already starts a session — see `adopt(sessionId:startedAt:)`,
+// response, which already starts a session — see `adopt(sessionId:)`,
 // called from AppPushService once that response is parsed. This manager only
 // reacts to backgrounding/foregrounding after that.
 //
@@ -56,7 +56,7 @@ final class AppsOnAirSessionManager {
     // plain `AppPushService.log` line.
     //   ============================================================
     //   [SessionManager] ★ SESSION STARTED
-    //   sessionId=... startedAt=...
+    //   sessionId=...
     //   ============================================================
     private static func logMilestone(_ title: String, _ detail: String) {
         let divider = String(repeating: "=", count: 60)
@@ -97,10 +97,10 @@ final class AppsOnAirSessionManager {
     /// Persist a session the backend handed back — the `/v1/subscriptions`
     /// register response, or a `POST /v1/sessions` response. Replaces whatever
     /// session was stored before.
-    func adopt(sessionId: String, startedAt: TimeInterval) {
+    func adopt(sessionId: String) {
         guard !sessionId.isEmpty else { return }
-        AppPushService.shared.storage.saveSession(id: sessionId, startedAt: startedAt)
-        Self.logMilestone("SESSION STARTED", "sessionId=\(sessionId) startedAt=\(startedAt)")
+        AppPushService.shared.storage.saveSession(id: sessionId)
+        Self.logMilestone("SESSION STARTED", "sessionId=\(sessionId)")
     }
 
     // MARK: - Reopen cleanup
@@ -123,8 +123,7 @@ final class AppsOnAirSessionManager {
         )
         AppsOnAirSessionAPI.endSession(
             sessionId: staleSessionId,
-            endedAt: Date().timeIntervalSince1970,
-            startedAt: AppPushService.shared.storage.sessionStartedAt // TEMP: debug-log only
+            endedAt: Date().timeIntervalSince1970
         ) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             if let error {
@@ -157,8 +156,7 @@ final class AppsOnAirSessionManager {
 
         AppsOnAirSessionAPI.endSession(
             sessionId: sessionId,
-            endedAt: endedAt,
-            startedAt: AppPushService.shared.storage.sessionStartedAt // TEMP: debug-log only
+            endedAt: endedAt
         ) { [weak self] data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             if let error {
@@ -214,17 +212,16 @@ final class AppsOnAirSessionManager {
                 guard (200..<300).contains(status),
                       let data,
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let sessionId = json["sessionId"] as? String, !sessionId.isEmpty,
-                      let startedAt = json["startedAt"] as? Double else {
+                      let sessionId = json["sessionId"] as? String, !sessionId.isEmpty else {
                     AppPushService.log(
-                        "SessionManager: start session response missing sessionId/startedAt — keeping previous session.",
+                        "SessionManager: start session response missing sessionId — keeping previous session.",
                         level: .warn
                     )
                     return
                 }
 
                 AppPushService.shared.storage.clearSession()
-                AppsOnAirSessionManager.shared.adopt(sessionId: sessionId, startedAt: startedAt)
+                AppsOnAirSessionManager.shared.adopt(sessionId: sessionId)
             }
         }
     }

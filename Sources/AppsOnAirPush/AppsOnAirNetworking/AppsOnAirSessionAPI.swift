@@ -59,8 +59,8 @@ enum AppsOnAirSessionAPI {
     /// Send POST /v1/sessions and return the raw result on the main actor.
     ///
     /// `completion` receives `(Data?, URLResponse?, Error?)` exactly as URLSession
-    /// produced it — the caller (`AppsOnAirSessionManager`) parses `sessionId` /
-    /// `startedAt` from the body. When the request cannot even be built (no
+    /// produced it — the caller (`AppsOnAirSessionManager`) parses `sessionId`
+    /// from the body. When the request cannot even be built (no
     /// subscriptionId, bad URL, encode failure) the completion is called with
     /// all-nil.
     static func startSession(
@@ -122,7 +122,6 @@ enum AppsOnAirSessionAPI {
     static func endSession(
         sessionId: String,
         endedAt: TimeInterval,
-        startedAt: TimeInterval? = nil, // TEMP: debug-log only — see duration log line below. Not sent to backend.
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
         guard !sessionId.isEmpty else {
@@ -166,20 +165,11 @@ enum AppsOnAirSessionAPI {
         request.setValue("ios",                           forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
-        // TEMP: duration is NOT part of the backend contract (the backend computes
-        // it from started_at/ended_at itself) — this is a debug-only log line, not
-        // sent in the request body. Remove once duration is no longer needed here.
-        let durationLine: String = {
-            guard let startedAt else { return "Duration: unknown (no stored startedAt)" }
-            return "Duration: \(endedAtEpochSeconds - Int(startedAt))s (startedAt=\(Int(startedAt)) endedAt=\(endedAtEpochSeconds))"
-        }()
-
         logBlock("→ END SESSION REQUEST", [
             "URL     : PATCH \(url.absoluteString)",
             "Headers : X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios",
             "Body    : \(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")",
-            "EndedAt : \(endedAtEpochSeconds) (epoch seconds) — \(Date(timeIntervalSince1970: TimeInterval(endedAtEpochSeconds)))",
-            durationLine
+            "EndedAt : \(endedAtEpochSeconds) (epoch seconds) — \(Date(timeIntervalSince1970: TimeInterval(endedAtEpochSeconds)))"
         ])
 
         URLSession.shared.dataTask(with: request) { data, response, error in
