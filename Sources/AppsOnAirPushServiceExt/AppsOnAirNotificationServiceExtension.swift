@@ -46,7 +46,7 @@ import UserNotifications
 //
 //  STEP 4 — (Delivery receipts only) Add the SAME App Group to the main app AND the
 //           NSE target. The SDK reads the group name from the project on both sides —
-//           no code, matching OneSignal:
+//           no code required:
 //             • Add to each target's Info.plist (or just rely on the convention below):
 //                 <key>AppsOnAirAppGroup</key>
 //                 <string>group.com.acme.app.appsonair</string>
@@ -298,7 +298,7 @@ public enum AppPushServiceExtension {
 
     // MARK: Badge
 
-    /// Maintain a running app-icon badge count across notifications — like OneSignal.
+    /// Maintain a running app-icon badge count across notifications.
     ///
     /// Payload keys (siblings of `aps`):
     ///   • `badge_increment` — Int delta, may be negative. `newCount = max(0, stored + delta)`.
@@ -435,8 +435,7 @@ public enum AppPushServiceExtension {
     // MARK: Delivery receipt
 
     /// Report a delivery receipt — tries a direct `POST /v1/events/delivered` from the
-    /// NSE process first (near-real-time, matches how OneSignal's NSE fires its
-    /// `report_received` confirmation synchronously), and only falls back to queuing in
+    /// NSE process first (near-real-time, fired synchronously), and only falls back to queuing in
     /// the App Group — for `AppsOnAirEventQueue.drainSharedExtensionQueue()` to retry on
     /// next app foreground — when the direct attempt can't be made or fails:
     ///   • App Group not resolvable at all → nothing persisted either; there is no

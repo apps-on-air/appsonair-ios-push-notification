@@ -7,7 +7,6 @@ import UIKit
 extension AppPushService {
 
     /// Notification permission, foreground display control, click handling, and management.
-    /// Matches OneSignal.Notifications namespace from OneSignal SDK v5.
     @MainActor
     public enum Notifications {
 
@@ -58,20 +57,17 @@ extension AppPushService {
         /// or `.ephemeral`). Synchronous — served from a cache that is refreshed on
         /// launch, on every app foreground, and after each permission request.
         /// For reactive updates use `addPermissionObserver(_:)`.
-        /// Matches OneSignal v5 `OneSignal.Notifications.permission`.
         public static var permission: Bool {
             NotificationPermission(AppPushService.shared.cachedAuthorizationStatus).isGranted
         }
 
         /// The native OS authorization status (synchronous, cached).
-        /// Matches OneSignal v5 `OneSignal.Notifications.permissionNative`.
         public static var permissionNative: NotificationPermission {
             NotificationPermission(AppPushService.shared.cachedAuthorizationStatus)
         }
 
         /// Whether `requestPermission()` would show the system dialog (status is
         /// `.notDetermined`). Synchronous, cached.
-        /// Matches OneSignal v5 `OneSignal.Notifications.canRequestPermission`.
         public static var canRequestPermission: Bool {
             AppPushService.shared.cachedAuthorizationStatus == .notDetermined
         }
@@ -126,7 +122,6 @@ extension AppPushService {
         // MARK: - Management
 
         /// Remove all delivered notifications from Notification Center and lock screen.
-        /// Matches OneSignal v5 `OneSignal.Notifications.clearAllNotifications()`.
         public static func clearAllNotifications() {
             AppPushService.clearAllNotifications()
         }

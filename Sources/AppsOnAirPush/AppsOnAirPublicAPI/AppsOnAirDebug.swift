@@ -6,7 +6,6 @@ extension AppPushService {
 
     /// Debug logging configuration.
     /// Call AppPushService.Debug.logLevel = .verbose before initialize() for full logs.
-    /// Matches OneSignal.Debug namespace from OneSignal SDK v5.
     public enum Debug {
 
         /// Current logging verbosity. Default is .none (no logs in production).
