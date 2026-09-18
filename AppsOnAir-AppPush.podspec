@@ -28,7 +28,7 @@ Pod::Spec.new do |s|
     core.source_files = 'Sources/AppsOnAirPush/**/*.swift'
     core.frameworks   = 'UIKit', 'UserNotifications', 'Security', 'BackgroundTasks'
     # Shared device/app metadata + app-id resolution used by AppsOnAirDeviceInfo.
-    core.dependency 'AppsOnAir-Core'
+    core.dependency 'AppsOnAir-Core', '>= 1.2.3'
   end
 
   # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
