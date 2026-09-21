@@ -36,7 +36,7 @@ enum AppsOnAirDeviceInfo {
     /// Used only when the installed package ships no version metadata (e.g. SPM
     /// added as source with no resource bundle). Keep in sync with
     /// `AppPushService.podspec` `s.version` on every release.
-    private static let fallbackSDKVersion = "0.0.3-alpha"
+    private static let fallbackSDKVersion = "0.0.4-alpha"
 
     /// SDK version, resolved at runtime from the installed package rather than
     /// hard-coded here:

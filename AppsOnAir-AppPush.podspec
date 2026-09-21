@@ -3,7 +3,7 @@ Pod::Spec.new do |s|
   # Source of truth for the runtime SDK version — AppsOnAirDeviceInfo.sdkVersion
   # reads this back via SdkManager (org.cocoapods.AppsOnAir-AppPush). Keep
   # AppsOnAirDeviceInfo.fallbackSDKVersion in sync for the SPM-as-source case.
-  s.version          = '0.0.3-alpha'
+  s.version          = '0.0.4-alpha'
   s.summary          = 'AppsOnAir Push Notifications SDK for iOS'
   s.description      = <<-DESC
     Lightweight iOS push notification SDK using APNs directly. No Firebase dependency.
@@ -28,7 +28,7 @@ Pod::Spec.new do |s|
     core.source_files = 'Sources/AppsOnAirPush/**/*.swift'
     core.frameworks   = 'UIKit', 'UserNotifications', 'Security', 'BackgroundTasks'
     # Shared device/app metadata + app-id resolution used by AppsOnAirDeviceInfo.
-    core.dependency 'AppsOnAir-Core'
+    core.dependency 'AppsOnAir-Core', '>= 1.2.3'
   end
 
   # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
