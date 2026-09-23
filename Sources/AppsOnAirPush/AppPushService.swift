@@ -2,6 +2,9 @@
 import Foundation
 import UIKit
 import UserNotifications
+#if SWIFT_PACKAGE
+import AppsOnAir_AppPush_Shared
+#endif
 
 // MARK: - AppPushService
 
@@ -30,8 +33,6 @@ public final class AppPushService: NSObject {
     internal var isOptedOut: Bool = false
     internal var aliases: [String: String] = [:]
     internal var emails: [String] = []
-    // AOA:Future — SMS support not included in push SDK scope
-    // internal var smsNumbers: [String] = []
 
     // MARK: - Listener / observer collections
 
@@ -103,11 +104,6 @@ public final class AppPushService: NSObject {
            let decoded = try? JSONDecoder().decode([String].self, from: data) {
             emails = decoded
         }
-        // AOA:Future — SMS: restore persisted smsNumbers here when SMS support is added
-        // if let data = UserDefaults.standard.data(forKey: "com.appsonair.push.smsNumbers"),
-        //    let decoded = try? JSONDecoder().decode([String].self, from: data) {
-        //     smsNumbers = decoded
-        // }
     }
 
     // MARK: - Public API
@@ -158,11 +154,11 @@ public final class AppPushService: NSObject {
         // NSE runs in a separate process and cannot link AppsOnAir_Core, so it needs a
         // copy of deviceId here. In-process code reads AppPushService.deviceId directly.
         if let groupId = shared._appGroupId, let groupDefaults = UserDefaults(suiteName: groupId) {
-            groupDefaults.set(appId,    forKey: "com.appsonair.push.appId")
-            groupDefaults.set(deviceId, forKey: "com.appsonair.push.deviceIdCache")
-            groupDefaults.set(groupId,  forKey: "com.appsonair.push.appGroupId")
+            groupDefaults.set(appId,    forKey: AppsOnAirStorageKeys.AppGroup.appId)
+            groupDefaults.set(deviceId, forKey: AppsOnAirStorageKeys.AppGroup.deviceId)
+            groupDefaults.set(groupId,  forKey: AppsOnAirStorageKeys.AppGroup.appGroupId)
             if let sid = subscriptionId {
-                groupDefaults.set(sid, forKey: "com.appsonair.push.subscriptionId")
+                groupDefaults.set(sid, forKey: AppsOnAirStorageKeys.AppGroup.subscriptionId)
             }
             groupDefaults.synchronize()
             log("App Group '\(groupId)' configured for NSE delivery receipts.", level: .debug)
@@ -182,6 +178,13 @@ public final class AppPushService: NSObject {
                 AppPushService.shared.knownNotificationCategories = box.categories
             }
         }
+
+        // Start the network reachability listener unconditionally so that when the device
+        // goes offline and reconnects, the event queue is flushed immediately — regardless
+        // of whether any runWhenConnected actions are pending. Without this, the reconnect
+        // flush only fires when runWhenConnected is called while offline, which is not
+        // guaranteed if the device was online for every call at launch.
+        AppsOnAirNetworkMonitor.startMonitoring()
 
         // Start session tracking — observes UIApplication foreground/background lifecycle
         // and drives the Session Tracking API (Start/End Session) per its contract.
@@ -241,11 +244,12 @@ public final class AppPushService: NSObject {
         // connectivity via AppsOnAirNetworkMonitor.
         registerSubscriptionIfReady(reason: .initialize)
 
-        // AOA: pull the backend's tag set into the local cache
-        // so User.getTags() reads fresh data synchronously. No-ops until a
+        // AOA: pull the backend's tag and alias sets into the local cache so
+        // getTags()/getAliases() read fresh data synchronously. No-ops until a
         // subscriptionId exists (a prior launch's, restored from storage);
-        // registerSubscriptionIfReady() triggers it again on first registration.
+        // registerSubscriptionIfReady() triggers both again on first registration.
         refreshTagsIfReady(reason: .tagsFetched)
+        refreshAliasesIfReady(reason: .aliasesFetched)
     }
 
     /// Register a listener to receive push events and errors.
@@ -287,7 +291,7 @@ public final class AppPushService: NSObject {
             // Mirror to App Group so the Notification Service Extension can include it in receipts.
             if let groupId = shared._appGroupId,
                let groupDefaults = UserDefaults(suiteName: groupId) {
-                groupDefaults.set(id, forKey: "com.appsonair.push.subscriptionId")
+                groupDefaults.set(id, forKey: AppsOnAirStorageKeys.AppGroup.subscriptionId)
                 groupDefaults.synchronize()
             }
             log("Subscription ID set: \(id)", level: .debug)
@@ -446,9 +450,10 @@ public final class AppPushService: NSObject {
                         print("[AppPushService] /v1/subscriptions subscriptionId=\(sid)")
                         setSubscriptionId(sid)              // persists + mirrors to App Group
                         firePushSubscriptionChange()
-                        // Now that a subscriptionId exists, pull the backend's tag set
-                        // into the local cache so User.getTags() reads it synchronously.
+                        // Now that a subscriptionId exists, pull the backend's tag and
+                        // alias sets into the local cache so getTags()/getAliases() read synchronously.
                         refreshTagsIfReady(reason: .tagsFetched)
+                        refreshAliasesIfReady(reason: .aliasesFetched)
 
                         // Run any sync calls that raced this registration — e.g. a
                         // permission grant/denial, login()/logout(), a tag change, or
@@ -632,7 +637,7 @@ public final class AppPushService: NSObject {
                     shared.storage.clearSubscriptionId()
                     if let groupId = shared._appGroupId,
                        let groupDefaults = UserDefaults(suiteName: groupId) {
-                        groupDefaults.removeObject(forKey: "com.appsonair.push.subscriptionId")
+                        groupDefaults.removeObject(forKey: AppsOnAirStorageKeys.AppGroup.subscriptionId)
                         groupDefaults.synchronize()
                     }
                     shared.didRegisterSubscription = false
@@ -773,6 +778,150 @@ public final class AppPushService: NSObject {
         }
     }
 
+    /// PATCH /v1/subscriptions/<id> with the current email list so the backend
+    /// subscription reflects the most recent `User.addEmail()` / `User.removeEmail()`
+    /// call.
+    ///
+    /// Same deferral as `syncTagsIfReady()`: the request is handed to
+    /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`. While
+    /// there is no `subscriptionId` yet, the call is queued and runs once
+    /// `registerSubscriptionIfReady` assigns one. `shared.emails` is re-read inside
+    /// the connectivity closure so a rapid sequence of `addEmail`/`removeEmail`
+    /// only sends the final list.
+    internal static func syncEmailIfReady(reason: AppsOnAirSyncReason) {
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] email sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                let emails = shared.emails
+                print("[AppPushService] PATCH /v1/subscriptions/\(sid) emails=\(emails) (\(reason))")
+
+                AppsOnAirSubscriptionAPI.updateEmail(emails) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] email PATCH error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] email PATCH HTTP \(status) (\(reason)): \(bodyText)")
+                }
+            }
+        }
+    }
+
+    /// POST /v1/subscriptions/<id>/alias so the backend subscription's alias map
+    /// matches the SDK's local set after `User.addAlias()` / `User.addAliases()`.
+    ///
+    /// Same deferral as `syncTagsIfReady()`: the request is handed to
+    /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`. While
+    /// there is no `subscriptionId` yet, the call is queued and runs once
+    /// `registerSubscriptionIfReady` assigns one. `shared.aliases` is re-read inside
+    /// the connectivity closure so a late send carries every alias added while offline.
+    internal static func syncAliasesIfReady(reason: AppsOnAirSyncReason) {
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] alias sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                let aliases = shared.aliases
+                guard !aliases.isEmpty else {
+                    print("[AppPushService] no aliases to sync (\(reason))")
+                    return
+                }
+                print("[AppPushService] POST /v1/subscriptions/\(sid)/alias \(aliases) (\(reason))")
+
+                AppsOnAirSubscriptionAPI.updateAliases(aliases) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] alias POST error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] alias POST HTTP \(status) (\(reason)): \(bodyText)")
+                }
+            }
+        }
+    }
+
+    /// POST /v1/subscriptions/<id>/alias/remove so the given labels are dropped from
+    /// the backend subscription's alias map after `User.removeAlias()` /
+    /// `User.removeAliases()`.
+    ///
+    /// Same deferral as `syncTagRemovalIfReady()`: the request is handed to
+    /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
+    /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`, or when
+    /// `labels` is empty. While there is no `subscriptionId` yet, the call is
+    /// queued and runs once `registerSubscriptionIfReady` assigns one. The labels
+    /// are captured as passed — they have already been removed from
+    /// `shared.aliases`, so they cannot be re-derived inside the closure.
+    internal static func syncAliasRemovalIfReady(labels: [String], reason: AppsOnAirSyncReason) {
+        let labels = labels.filter { !$0.isEmpty }
+        guard !labels.isEmpty else { return }
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { return }
+            print("[AppPushService] alias/remove sync ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                print("[AppPushService] POST /v1/subscriptions/\(sid)/alias/remove \(labels) (\(reason))")
+
+                AppsOnAirSubscriptionAPI.removeAliases(labels) { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] alias/remove POST error (\(reason)): \(error.localizedDescription)")
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] alias/remove POST HTTP \(status) (\(reason)): \(bodyText)")
+                }
+            }
+        }
+    }
+
+    /// GET /v1/subscriptions/<id>/alias and refresh the local alias cache
+    /// (`shared.aliases`, persisted to UserDefaults) from the backend response.
+    ///
+    /// Mirrors `refreshTagsIfReady` exactly — same deferral, same connectivity gate,
+    /// same pending-action queue behaviour. `completion` (main actor) receives the
+    /// freshly parsed alias map on success, or the unchanged local cache when the
+    /// request could not be sent, errored, returned non-2xx, or had an unparseable body.
+    internal static func refreshAliasesIfReady(
+        reason: AppsOnAirSyncReason,
+        completion: (@MainActor ([String: String]) -> Void)? = nil
+    ) {
+        guard shared.isConfigured else { completion?(shared.aliases); return }
+        runOnceSubscriptionReady(reason: reason) {
+            guard let sid = subscriptionId, !sid.isEmpty else { completion?(shared.aliases); return }
+            print("[AppPushService] alias refresh ready (\(reason)) — waiting for connectivity")
+            AppsOnAirNetworkMonitor.runWhenConnected {
+                print("[AppPushService] GET /v1/subscriptions/\(sid)/alias (\(reason))")
+
+                AppsOnAirSubscriptionAPI.fetchAliases { data, response, error in
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    if let error {
+                        print("[AppPushService] alias GET error (\(reason)): \(error.localizedDescription)")
+                        completion?(shared.aliases)
+                        return
+                    }
+                    let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    print("[AppPushService] alias GET HTTP \(status) (\(reason)): \(bodyText)")
+
+                    guard (200..<300).contains(status),
+                          let remote = AppsOnAirSubscriptionAPI.parseAliasResponse(data) else {
+                        completion?(shared.aliases)
+                        return
+                    }
+
+                    shared.aliases = remote
+                    if let encoded = try? JSONEncoder().encode(remote) {
+                        UserDefaults.standard.set(encoded, forKey: "com.appsonair.push.aliases")
+                    }
+                    print("[AppPushService] local alias cache refreshed from backend (\(remote.count) alias(es))")
+                    completion?(remote)
+                }
+            }
+        }
+    }
+
     /// GET /v1/subscriptions/<id>/tags and refresh the local tag cache
     /// (`shared.tags`, persisted to UserDefaults) from the backend response.
     ///
@@ -887,9 +1036,10 @@ public final class AppPushService: NSObject {
         // Link the identified user on the backend subscription —
         // PATCH /v1/subscriptions/<id> { "external_id": <externalId> }, gated on connectivity.
         syncExternalIdIfReady(reason: .login)
-        // Refresh the local tag cache — the identified user may carry a different
-        // tag set than the anonymous device did. GET /v1/subscriptions/<id>/tags.
+        // Refresh local tag and alias caches — the identified user may carry different
+        // sets than the anonymous device did.
         refreshTagsIfReady(reason: .tagsFetched)
+        refreshAliasesIfReady(reason: .aliasesFetched)
     }
 
     /// Unlink this device from the identified user. Reverts to anonymous state.
@@ -974,9 +1124,7 @@ public final class AppPushService: NSObject {
     //   • `setBadgeCount` / `incrementBadgeCount` / `clearBadgeCount` keep the icon and
     //     the shared total in sync so manual and push-driven changes don't fight.
 
-    /// App Group key holding the running badge total. Mirrors `SharedKey.badgeCount`
-    /// in the `AppsOnAirPushServiceExt` target.
-    private static let badgeCountKey = "com.appsonair.push.badgeCount"
+    private static let badgeCountKey = AppsOnAirStorageKeys.AppGroup.badgeCount
 
     /// Controls what the SDK does with the badge when the app is opened.
     ///
@@ -1128,13 +1276,16 @@ public final class AppPushService: NSObject {
         shared.listener?.onNotificationReceived(notification: push)
         checkPermissionChange()
 
-        // Enqueue a local RECEIVED event for tracking purposes.
-        // No backend call for free tier — TODO: POST /events/received if BE requests it.
+        // Enqueue a DELIVERED event — mirrors Android: delivery is tracked in all app
+        // states (foreground, background, killed). Flush immediately so the event reaches
+        // the backend while the process is alive, rather than waiting for next app open.
         AppsOnAirEventQueue.shared.enqueue(PushEvent(
-            type: .received,
+            type: .delivered,
             notificationId: push.id,
-            subscriptionId: subscriptionId
+            subscriptionId: subscriptionId,
+            sendId: push.sendId
         ))
+        AppsOnAirEventQueue.shared.flush()
 
         // If any listener suppressed display, return empty options
         return event.isPreventDefault ? [] : [.banner, .badge, .sound]
@@ -1247,9 +1398,9 @@ public final class AppPushService: NSObject {
             log("Notification opened — running badge total decremented to \(remaining).", level: .debug)
         }
 
-        // Enqueue click/open event — sent to backend on next flush.
-        // Body tap (actionId == nil) → POST /v1/events/opened.
-        // Action-button tap (actionId set) → POST /v1/events/clicked (see AppsOnAirEventQueue).
+        // Enqueue click/open event and flush immediately — mirrors Android which also calls
+        // flush() on notification tap. Body tap → POST /v1/events/opened.
+        // Action-button tap → POST /v1/events/clicked (see AppsOnAirEventQueue).
         AppsOnAirEventQueue.shared.enqueue(PushEvent(
             type: actionId == nil ? .opened : .clicked,
             notificationId: push.id,
@@ -1257,6 +1408,7 @@ public final class AppPushService: NSObject {
             actionId: actionId,
             sendId: push.sendId
         ))
+        AppsOnAirEventQueue.shared.flush()
         log(
             "Notification \(actionId == nil ? "opened" : "clicked (action: \(actionId!))")." +
             " notifId=\(push.id ?? "nil") subscriptionId=\(subscriptionId ?? "nil")" +

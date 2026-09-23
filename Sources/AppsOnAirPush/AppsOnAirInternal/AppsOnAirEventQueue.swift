@@ -1,4 +1,7 @@
 import Foundation
+#if SWIFT_PACKAGE
+import AppsOnAir_AppPush_Shared
+#endif
 
 // MARK: - AppsOnAirEventQueue
 //
@@ -96,10 +99,7 @@ final class AppsOnAirEventQueue {
 
     // MARK: - Notification Service Extension bridge
 
-    /// Key of the shared array the NSE appends delivery receipts to
-    /// (`AppPushServiceExtension` in the `AppsOnAirPushServiceExt` target). Kept in sync
-    /// with that target manually — the two do not share code.
-    private let nseQueueKey = "com.appsonair.push.nseEventQueue"
+    private let nseQueueKey = AppsOnAirStorageKeys.AppGroup.nseEventQueue
 
     /// Move delivery receipts written by the NSE process (App Group `UserDefaults`) into
     /// the main persistent queue, then clear the shared slot. Called at the top of `flush()`.

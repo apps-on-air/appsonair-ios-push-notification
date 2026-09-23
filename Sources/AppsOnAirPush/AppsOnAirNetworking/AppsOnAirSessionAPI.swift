@@ -1,4 +1,7 @@
 import Foundation
+#if SWIFT_PACKAGE
+import AppsOnAir_AppPush_Shared
+#endif
 
 // MARK: - AppsOnAirSessionAPI
 //

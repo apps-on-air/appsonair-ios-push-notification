@@ -22,8 +22,24 @@ final class PushAppDelegateSwizzler {
     static func swizzle() {
         guard !hasSwizzled else { return }
         hasSwizzled = true
-        // swizzle() is already @MainActor; defer to the next run-loop turn so
-        // UIApplication.shared.delegate is guaranteed to be set by the time we read it.
+
+        // Install the notification center delegate SYNCHRONOUSLY — this must not be
+        // deferred. When the app cold-launches because the user tapped a notification,
+        // iOS delivers `userNotificationCenter(_:didReceive:withCompletionHandler:)` on
+        // the very next run-loop turn after `didFinishLaunchingWithOptions` returns.
+        // If the delegate is not yet installed at that point, the tap is missed entirely
+        // (no open/click event, no `onNotificationOpened` callback). Setting it here,
+        // synchronously, guarantees it is in place before that delivery window opens.
+        let center = UNUserNotificationCenter.current()
+        if center.delegate == nil {
+            let d = PushNotificationDelegate()
+            notificationDelegate = d  // hold strongly — center keeps only a weak ref
+            center.delegate = d
+        }
+
+        // ObjC swizzles are deferred to the next run-loop turn so that
+        // UIApplication.shared.delegate is guaranteed to be set (needed by
+        // resolveAppDelegateClass) by the time we read it.
         Task { @MainActor in safeSwizzle() }
     }
 
@@ -39,10 +55,13 @@ final class PushAppDelegateSwizzler {
         swizzleFail(in: cls)
         swizzleSilentPush(in: cls)
 
+        // Notification center delegate was already installed synchronously in swizzle().
+        // Install it here as a fallback only if it was not set there (e.g. if the host
+        // app set a delegate between swizzle() and this deferred call).
         let center = UNUserNotificationCenter.current()
         if center.delegate == nil {
             let d = PushNotificationDelegate()
-            notificationDelegate = d  // hold strongly — center keeps only a weak ref
+            notificationDelegate = d
             center.delegate = d
         }
     }

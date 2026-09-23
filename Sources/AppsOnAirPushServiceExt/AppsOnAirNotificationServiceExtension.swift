@@ -1,5 +1,8 @@
 import Foundation
 import UserNotifications
+#if SWIFT_PACKAGE
+import AppsOnAir_AppPush_Shared
+#endif
 
 // MARK: - AppsOnAir Notification Service Extension
 //
@@ -306,7 +309,7 @@ public enum AppPushServiceExtension {
     /// `badge_increment` wins when both are present. `aps.badge` is used as a last-resort
     /// absolute value so the counter stays in sync even for non-AppsOnAir payloads.
     ///
-    /// The running total lives in the App Group (`SharedKey.badgeCount`); the main app
+    /// The running total lives in the App Group (`AppsOnAirStorageKeys.AppGroup.badgeCount`); the main app
     /// resets it to 0 when brought to the foreground. Without an App Group only an
     /// absolute value can be honoured — increments are ignored (no place to keep a total).
     private static func applyBadge(
@@ -325,14 +328,14 @@ public enum AppPushServiceExtension {
             return
         }
 
-        let current = defaults.integer(forKey: SharedKey.badgeCount)
+        let current = defaults.integer(forKey: AppsOnAirStorageKeys.AppGroup.badgeCount)
         let newValue: Int
         if let increment {
             newValue = max(0, current + increment)
         } else {
             newValue = max(0, absolute ?? 0)
         }
-        defaults.set(newValue, forKey: SharedKey.badgeCount)
+        defaults.set(newValue, forKey: AppsOnAirStorageKeys.AppGroup.badgeCount)
         content.badge = NSNumber(value: newValue)
 
         NSLog("[AppPushService NSE] Badge count %d → %d (increment=%@, absolute=%@).",
@@ -456,9 +459,9 @@ public enum AppPushServiceExtension {
             return
         }
 
-        let appId          = defaults.string(forKey: SharedKey.appId).flatMap { $0.isEmpty ? nil : $0 }
-        let subscriptionId = defaults.string(forKey: SharedKey.subscriptionId).flatMap { $0.isEmpty ? nil : $0 }
-        let deviceId       = defaults.string(forKey: SharedKey.deviceId)
+        let appId          = defaults.string(forKey: AppsOnAirStorageKeys.AppGroup.appId).flatMap { $0.isEmpty ? nil : $0 }
+        let subscriptionId = defaults.string(forKey: AppsOnAirStorageKeys.AppGroup.subscriptionId).flatMap { $0.isEmpty ? nil : $0 }
+        let deviceId       = defaults.string(forKey: AppsOnAirStorageKeys.AppGroup.deviceId)
 
         if let appId, let subscriptionId {
             let sent = sendDeliveryReceiptDirect(
@@ -477,7 +480,7 @@ public enum AppPushServiceExtension {
             NSLog("[AppPushService NSE] appId/subscriptionId not yet in App Group — falling back to queue.")
         }
 
-        var queue = defaults.array(forKey: SharedKey.nseEventQueue) as? [[String: Any]] ?? []
+        var queue = defaults.array(forKey: AppsOnAirStorageKeys.AppGroup.nseEventQueue) as? [[String: Any]] ?? []
         queue.append([
             "type":            "delivered",
             "notification_id": notificationId ?? "",
@@ -488,7 +491,7 @@ public enum AppPushServiceExtension {
         ])
         // Bound growth if the app is never reopened.
         if queue.count > 200 { queue.removeFirst(queue.count - 200) }
-        defaults.set(queue, forKey: SharedKey.nseEventQueue)
+        defaults.set(queue, forKey: AppsOnAirStorageKeys.AppGroup.nseEventQueue)
 
         NSLog("[AppPushService NSE] Delivery receipt queued. notificationId=%@ queueSize=%d",
               notificationId ?? "nil", queue.count)
@@ -501,10 +504,10 @@ public enum AppPushServiceExtension {
     /// throws) on any failure — offline, timeout, or a non-2xx response — so the caller
     /// can fall back to the App Group queue.
     ///
-    /// Endpoint/body literals are duplicated from `EnvironmentConfig` /
-    /// `AppsOnAirEventsAPI` in the main `AppsOnAirPush` target: the NSE target has zero
-    /// package dependencies (not even on the main target, see Package.swift) and cannot
-    /// import them. Keep in sync manually, same as `SharedKey` below.
+    /// `EnvironmentConfig.eventDelivered` (shared target) provides the URL.
+    /// Body field names must match `AppsOnAirEventsAPI` in the main target — kept in sync
+    /// at code review since `AppsOnAirEventsAPI` itself is UIKit-linked and cannot be
+    /// imported here.
     private static func sendDeliveryReceiptDirect(
         appId: String,
         subscriptionId: String,
@@ -555,9 +558,7 @@ public enum AppPushServiceExtension {
         return succeeded
     }
 
-    /// `POST /v1/events/delivered` — duplicated from `EnvironmentConfig.eventDelivered`
-    /// in the main target (see `sendDeliveryReceiptDirect`). Keep in sync manually.
-    private static let eventDeliveredURLString = "https://push.dev.appsonair.com/v1/events/delivered"
+    private static let eventDeliveredURLString = EnvironmentConfig.eventDelivered
 
     /// 1) `AppsOnAirAppGroup` string in the NSE's Info.plist (authoritative).
     /// 2) Convention fallback: `group.<main-app-bundle-id>.appsonair`, derived by dropping
@@ -586,7 +587,15 @@ public enum AppPushServiceExtension {
         }
 
         if urls.isEmpty {
-            if let image = userInfo[PayloadKey.imageURL] as? String, let url = URL(string: image) {
+            // Priority: big_picture → image_url (legacy) → large_icon → video_url.
+            // On iOS, big_picture / image_url / large_icon all map to the same
+            // UNNotificationAttachment — iOS has no separate "right-side thumbnail"
+            // concept; the single attachment is shown as a thumbnail when collapsed
+            // and as a full image when expanded (long-press / 3D Touch).
+            let mainImage = (userInfo[PayloadKey.bigPicture] as? String)
+                ?? (userInfo[PayloadKey.imageURL] as? String)
+                ?? (userInfo[PayloadKey.largeIcon] as? String)
+            if let image = mainImage, let url = URL(string: image) {
                 urls.append(url)
             } else if let video = userInfo[PayloadKey.videoURL] as? String, let url = URL(string: video) {
                 urls.append(url)
@@ -731,7 +740,15 @@ public enum AppPushServiceExtension {
         static let body            = "body"
         static let subtitle        = "subtitle"
         static let sound           = "sound"
+        /// Primary image attachment — shown as thumbnail (collapsed) and full image (expanded).
+        /// Mirrors Android's `big_picture` key. Takes precedence over `image_url` and `large_icon`.
+        static let bigPicture      = "big_picture"
+        /// Legacy alias for `big_picture`. Supported for backward compatibility.
         static let imageURL        = "image_url"
+        /// Android's right-side thumbnail. iOS has no separate thumbnail concept —
+        /// mapped to the same UNNotificationAttachment as `big_picture` / `image_url`.
+        /// Only used when neither `big_picture` nor `image_url` is present.
+        static let largeIcon       = "large_icon"
         static let videoURL        = "video_url"
         static let attachments     = "attachments"
         static let badge           = "badge"
@@ -739,15 +756,4 @@ public enum AppPushServiceExtension {
         static let actions         = "actions"
     }
 
-    /// App Group `UserDefaults` keys. **Must mirror the literals written by
-    /// `AppPushService.initialize()` in the main `AppPushService` target** — the two
-    /// targets do not share code.
-    private enum SharedKey {
-        static let appId          = "com.appsonair.push.appId"
-        static let deviceId       = "com.appsonair.push.deviceIdCache"
-        static let subscriptionId = "com.appsonair.push.subscriptionId"
-        static let appGroupId     = "com.appsonair.push.appGroupId"
-        static let nseEventQueue  = "com.appsonair.push.nseEventQueue"
-        static let badgeCount     = "com.appsonair.push.badgeCount"
-    }
 }

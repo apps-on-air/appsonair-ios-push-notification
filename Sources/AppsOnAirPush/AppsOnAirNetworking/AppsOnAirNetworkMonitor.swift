@@ -33,10 +33,20 @@ enum AppsOnAirNetworkMonitor {
     /// True once the single Core listener has been installed.
     private static var listening = false
 
+    /// Install the Core reachability listener so that connectivity changes trigger
+    /// an immediate event-queue flush and drain any pending `runWhenConnected` actions.
+    /// Called once from `AppPushService.initialize()` — this ensures the reconnect
+    /// flush fires even when the device was online for every `runWhenConnected` call
+    /// and the listener would otherwise never have been installed.
+    static func startMonitoring() {
+        startListening()
+    }
+
     /// Run `action` as soon as the network is connected — immediately if it
     /// already is, otherwise once, the next time AppsOnAir_Core reports the
     /// network is up.
     static func runWhenConnected(_ action: @escaping @MainActor () -> Void) {
+        startListening()  // ensure listener is installed (idempotent)
         if isConnected {
             print("[AppsOnAirNetworkMonitor] online — running action now")
             action()
@@ -44,7 +54,6 @@ enum AppsOnAirNetworkMonitor {
         }
         pending.append(action)
         print("[AppsOnAirNetworkMonitor] offline — queued action (\(pending.count) pending)")
-        startListening()
     }
 
     // MARK: - Private
@@ -55,7 +64,15 @@ enum AppsOnAirNetworkMonitor {
         AppPushService.shared.core.networkStatusListenerHandler { connected in
             Task { @MainActor in
                 print("[AppsOnAirNetworkMonitor] connectivity changed → \(connected)")
-                guard connected, !pending.isEmpty else { return }
+                guard connected else { return }
+
+                // Flush the persistent event queue immediately on reconnect so that
+                // queued offline events (open, click, delivered) reach the backend as
+                // soon as internet is available — rather than waiting for the next app
+                // foreground or session start.
+                AppsOnAirEventQueue.shared.flush()
+
+                guard !pending.isEmpty else { return }
                 let actions = pending
                 pending.removeAll()
                 print("[AppsOnAirNetworkMonitor] draining \(actions.count) queued action(s)")
