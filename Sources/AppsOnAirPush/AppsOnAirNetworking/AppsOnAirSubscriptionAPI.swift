@@ -1,4 +1,7 @@
 import Foundation
+#if SWIFT_PACKAGE
+import AppsOnAir_AppPush_Shared
+#endif
 
 // MARK: - AppsOnAirSubscriptionAPI
 //
@@ -36,6 +39,30 @@ import Foundation
 //   Headers: same four as POST
 //   Body (exact backend contract — see curl sample):
 //     { "external_id": <String> }   // JSON null clears it (logout)
+//
+//   PATCH <EnvironmentConfig.subscriptionById><subscriptionId>   (…/v1/subscriptions/<id>)
+//   Sent on User.addEmail() / User.removeEmail() to sync the current email list.
+//   Headers: same four as POST
+//   Body (exact backend contract — see curl sample):
+//     { "emails": [ <String>, … ] }   // full current list; empty array clears all
+//
+//   POST <EnvironmentConfig.subscriptionById><subscriptionId>/alias   (…/v1/subscriptions/<id>/alias)
+//   Sent on User.addAlias() / User.addAliases() to sync this subscription's alias map.
+//   Headers: same four as the POST above (Content-Type: application/json)
+//   Body (exact backend contract — identical to tags POST):
+//     [ { "key": <String>, "value": <String> }, … ]
+//
+//   POST <EnvironmentConfig.subscriptionById><subscriptionId>/alias/remove   (…/v1/subscriptions/<id>/alias/remove)
+//   Sent on User.removeAlias() / User.removeAliases() to drop labels from this
+//   subscription's alias map.
+//   Headers: same four as the POST above (Content-Type: application/json)
+//   Body (exact backend contract — identical to tags/remove POST):
+//     { "keys": [ <String>, … ] }   // one entry per alias key to remove
+//
+//   GET <EnvironmentConfig.subscriptionById><subscriptionId>/alias   (…/v1/subscriptions/<id>/alias)
+//   Sent on alias fetch to refresh the local alias cache from the backend.
+//   Headers: X-App-Id, X-SDK-Version, X-Platform (no Content-Type — no body)
+//   Body: none. Response parsed by `parseAliasResponse`.
 //
 //   POST <EnvironmentConfig.subscriptionById><subscriptionId>/opt-in    (…/v1/subscriptions/<id>/opt-in)
 //   POST <EnvironmentConfig.subscriptionById><subscriptionId>/opt-out   (…/v1/subscriptions/<id>/opt-out)
@@ -612,6 +639,221 @@ enum AppsOnAirSubscriptionAPI {
         }.resume()
     }
 
+    /// Send PATCH /v1/subscriptions/<subscriptionId> with the current email list and
+    /// return the raw result on the main actor.
+    ///
+    /// Mirrors `updateExternalId` — this ONLY builds and sends the request. The body
+    /// is exactly `{ "emails": <emails> }` (backend contract). An empty array clears
+    /// all emails from the subscription. When the request cannot be built (no
+    /// `subscriptionId`, bad URL, encode failure) the completion is called with all-nil.
+    static func updateEmail(
+        _ emails: [String],
+        completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
+    ) {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
+            print("[AppsOnAirSubscriptionAPI] no subscriptionId — email PATCH not sent")
+            completion(nil, nil, nil)
+            return
+        }
+        let endpoint = EnvironmentConfig.subscriptionById + subscriptionId
+        guard let url = URL(string: endpoint) else {
+            print("[AppsOnAirSubscriptionAPI] invalid endpoint URL '\(endpoint)'")
+            completion(nil, nil, nil)
+            return
+        }
+
+        let body: [String: Any] = ["emails": emails]
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
+            print("[AppsOnAirSubscriptionAPI] failed to serialize body")
+            completion(nil, nil, nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.timeoutInterval = 20
+        request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
+        request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
+        request.httpBody = httpBody
+
+        print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString) (emails)")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            print("[AppsOnAirSubscriptionAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
+            print("[AppsOnAirSubscriptionAPI]   response=\(text)")
+            Task { @MainActor in
+                completion(data, response, error)
+            }
+        }.resume()
+    }
+
+    /// Send POST /v1/subscriptions/<subscriptionId>/alias with the SDK's current
+    /// alias map and return the raw result on the main actor.
+    ///
+    /// Mirrors `updateTags` — this ONLY builds and sends the request. The body is
+    /// the exact backend contract: `{ "alias": [ { "label": <l>, "id": <i> }, … ] }`.
+    /// When the request cannot be built (no `subscriptionId`, no aliases, bad URL,
+    /// encode failure) the completion is called with all-nil.
+    static func updateAliases(
+        _ aliases: [String: String],
+        completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
+    ) {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
+            print("[AppsOnAirSubscriptionAPI] no subscriptionId — alias POST not sent")
+            completion(nil, nil, nil)
+            return
+        }
+        guard !aliases.isEmpty else {
+            print("[AppsOnAirSubscriptionAPI] no aliases — alias POST not sent")
+            completion(nil, nil, nil)
+            return
+        }
+        let endpoint = EnvironmentConfig.subscriptionById + subscriptionId + "/alias"
+        guard let url = URL(string: endpoint) else {
+            print("[AppsOnAirSubscriptionAPI] invalid endpoint URL '\(endpoint)'")
+            completion(nil, nil, nil)
+            return
+        }
+
+        let body = aliasBody(aliases: aliases)
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
+            print("[AppsOnAirSubscriptionAPI] failed to serialize body")
+            completion(nil, nil, nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
+        request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
+        request.httpBody = httpBody
+
+        print("[AppsOnAirSubscriptionAPI] → POST \(url.absoluteString) (alias)")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            print("[AppsOnAirSubscriptionAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
+            print("[AppsOnAirSubscriptionAPI]   response=\(text)")
+            Task { @MainActor in
+                completion(data, response, error)
+            }
+        }.resume()
+    }
+
+    /// Send POST /v1/subscriptions/<subscriptionId>/alias/remove with the alias
+    /// labels to drop and return the raw result on the main actor.
+    ///
+    /// Mirrors `removeTags` — this ONLY builds and sends the request. The body is
+    /// the exact backend contract: `{ "labels": [ <l>, … ] }`. When the request
+    /// cannot be built (no `subscriptionId`, no labels, bad URL, encode failure)
+    /// the completion is called with all-nil.
+    static func removeAliases(
+        _ labels: [String],
+        completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
+    ) {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
+            print("[AppsOnAirSubscriptionAPI] no subscriptionId — alias/remove POST not sent")
+            completion(nil, nil, nil)
+            return
+        }
+        guard !labels.isEmpty else {
+            print("[AppsOnAirSubscriptionAPI] no labels — alias/remove POST not sent")
+            completion(nil, nil, nil)
+            return
+        }
+        let endpoint = EnvironmentConfig.subscriptionById + subscriptionId + "/alias/remove"
+        guard let url = URL(string: endpoint) else {
+            print("[AppsOnAirSubscriptionAPI] invalid endpoint URL '\(endpoint)'")
+            completion(nil, nil, nil)
+            return
+        }
+
+        let body = aliasRemovalBody(labels: labels)
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
+            print("[AppsOnAirSubscriptionAPI] failed to serialize body")
+            completion(nil, nil, nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("application/json",             forHTTPHeaderField: "Content-Type")
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
+        request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
+        request.httpBody = httpBody
+
+        print("[AppsOnAirSubscriptionAPI] → POST \(url.absoluteString) (alias/remove)")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+        print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            print("[AppsOnAirSubscriptionAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
+            print("[AppsOnAirSubscriptionAPI]   response=\(text)")
+            Task { @MainActor in
+                completion(data, response, error)
+            }
+        }.resume()
+    }
+
+    /// Send GET /v1/subscriptions/<subscriptionId>/alias and return the raw result
+    /// on the main actor.
+    ///
+    /// Mirrors `fetchTags` — this ONLY builds and sends the request. There is no
+    /// request body, so no `Content-Type` header is set. The caller parses the
+    /// response with `parseAliasResponse`. When the request cannot be built
+    /// (no `subscriptionId`, bad URL) the completion is called with all-nil.
+    static func fetchAliases(
+        completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
+    ) {
+        guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
+            print("[AppsOnAirSubscriptionAPI] no subscriptionId — alias GET not sent")
+            completion(nil, nil, nil)
+            return
+        }
+        let endpoint = EnvironmentConfig.subscriptionById + subscriptionId + "/alias"
+        guard let url = URL(string: endpoint) else {
+            print("[AppsOnAirSubscriptionAPI] invalid endpoint URL '\(endpoint)'")
+            completion(nil, nil, nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 20
+        request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
+        request.setValue(AppsOnAirDeviceInfo.sdkVersion, forHTTPHeaderField: "X-SDK-Version")
+        request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
+
+        print("[AppsOnAirSubscriptionAPI] → GET \(url.absoluteString) (alias)")
+        print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            print("[AppsOnAirSubscriptionAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
+            print("[AppsOnAirSubscriptionAPI]   response=\(text)")
+            Task { @MainActor in
+                completion(data, response, error)
+            }
+        }.resume()
+    }
+
     // MARK: - Body
 
     /// Exact backend contract for the tags POST (see curl sample): a JSON array
@@ -626,6 +868,20 @@ enum AppsOnAirSubscriptionAPI {
     /// serialized body is stable for logging / testing.
     static func tagRemovalBody(keys: [String]) -> [String: [String]] {
         ["keys": Array(Set(keys)).sorted()]
+    }
+
+    /// Exact backend contract for the alias POST — identical to `tagsBody`:
+    /// a plain JSON array of `{ "key": <k>, "value": <v> }` objects, one per alias.
+    /// Sorted by key so the serialized body is stable for logging / testing.
+    static func aliasBody(aliases: [String: String]) -> [[String: String]] {
+        aliases.sorted { $0.key < $1.key }.map { ["key": $0.key, "value": $0.value] }
+    }
+
+    /// Exact backend contract for the alias/remove POST — identical to `tagRemovalBody`:
+    /// `{ "keys": [ <k>, … ] }`. Keys are de-duplicated and sorted so the
+    /// serialized body is stable for logging / testing.
+    static func aliasRemovalBody(labels: [String]) -> [String: [String]] {
+        ["keys": Array(Set(labels)).sorted()]
     }
 
     // MARK: - Response parsing
@@ -670,6 +926,46 @@ enum AppsOnAirSubscriptionAPI {
             // No "tags" key — treat the object itself as a flat key/value map,
             // dropping any obviously non-tag scalar metadata is not possible here
             // so callers should prefer the wrapped shapes above.
+            return fromMap(dict)
+        }
+        return nil
+    }
+
+    /// Turn a `GET …/alias` response body into a `[String: String]` map
+    /// (label → id).
+    ///
+    /// Tolerant of the same shapes as `parseTagsResponse` but with alias keys:
+    ///   • `{ "alias": [ { "label": "crm_id", "id": "123" }, … ] }`  (wrapped array)
+    ///   • `{ "alias": { "crm_id": "123", … } }`                     (wrapped map)
+    ///   • `[ { "label": "crm_id", "id": "123" }, … ]`               (bare array)
+    ///   • `{ "crm_id": "123", … }`                                   (flat map)
+    ///   • any of the above nested under a top-level `"data"` key
+    /// Returns `nil` only when the body is not JSON or matches none of these.
+    static func parseAliasResponse(_ data: Data?) -> [String: String]? {
+        guard let data, !data.isEmpty,
+              let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        let payload: Any = (root as? [String: Any])?["data"] ?? root
+
+        func fromArray(_ array: [[String: Any]]) -> [String: String] {
+            var out: [String: String] = [:]
+            for entry in array {
+                guard let label = entry["label"] as? String else { continue }
+                out[label] = entry["id"].map { "\($0)" } ?? ""
+            }
+            return out
+        }
+
+        func fromMap(_ map: [String: Any]) -> [String: String] {
+            map.reduce(into: [:]) { $0[$1.key] = "\($1.value)" }
+        }
+
+        if let array = payload as? [[String: Any]] {
+            return fromArray(array)
+        }
+        if let dict = payload as? [String: Any] {
+            if let array = dict["alias"] as? [[String: Any]] { return fromArray(array) }
+            if let map = dict["alias"] as? [String: Any]     { return fromMap(map) }
             return fromMap(dict)
         }
         return nil

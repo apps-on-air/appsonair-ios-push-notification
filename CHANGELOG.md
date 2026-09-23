@@ -1,4 +1,14 @@
-## 0.0.3-alpha
+## 1.0.1-beta
+- Minor SDK improvements.
+- Email and Alias method integration.
+
+
+## 1.0.0-beta
+- Minor SDK improvements.
+
+## 0.0.4-alpha
+- SDK improvements.
+
 * Minor NSE SDK improvements (Sound).
 * Analytics integration.
 

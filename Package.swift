@@ -31,20 +31,30 @@ let package = Package(
         // Shared device/app metadata, app-id resolution, and network-reachability
         // helpers used across the AppsOnAir SDK family. UIKit-based — main app
         // target only (never the notification extensions).
-        // TODO: Switch back to remote before release
         .package(
             url: "https://github.com/apps-on-air/AppsOnAir-iOS-Core.git",
             from: "1.2.3"
         )
     ],
     targets: [
+        // ── Shared (Foundation-only) ─────────────────────────────────────────────
+        // Imported by both the main app target and the Notification Service
+        // Extension. Must stay UIKit-free so the NSE can link it safely.
+        // Contains: EnvironmentConfig (server URL + endpoint constants).
+        .target(
+            name: "AppsOnAir-AppPush-Shared",
+            dependencies: [],
+            path: "Sources/AppsOnAirPushShared"
+        ),
+
         // ── Main app target ──────────────────────────────────────────────────────
         // Link to your app target. Imports: UIKit, UserNotifications,
         // Security, BackgroundTasks.
         .target(
             name: "AppsOnAir-AppPush",
             dependencies: [
-                .product(name: "AppsOnAir-Core", package: "AppsOnAir-iOS-Core")
+                .product(name: "AppsOnAir-Core", package: "AppsOnAir-iOS-Core"),
+                "AppsOnAir-AppPush-Shared"
             ],
             path: "Sources/AppsOnAirPush"
         ),
@@ -55,7 +65,7 @@ let package = Package(
         // this target imports only Foundation + UserNotifications.
         .target(
             name: "AppsOnAir-AppPush-ServiceExt",
-            dependencies: [],
+            dependencies: ["AppsOnAir-AppPush-Shared"],
             path: "Sources/AppsOnAirPushServiceExt"
         ),
 

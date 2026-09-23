@@ -57,6 +57,22 @@ enum AppsOnAirSyncReason: CustomStringConvertible, Equatable {
     /// subscription.
     case languageSet
 
+    /// `User.addAlias(label:id:)` / `User.addAliases(_:)` — sync the local alias
+    /// map to the backend subscription.
+    case aliasAdded
+
+    /// `User.removeAlias(_:)` / `User.removeAliases(_:)` — drop the given labels
+    /// from the backend subscription's alias map.
+    case aliasRemoved
+
+    /// `User.getAliases(_:)` — refresh the local alias cache from the backend
+    /// subscription.
+    case aliasesFetched
+
+    /// `User.addEmail(_:)` / `User.removeEmail(_:)` — sync the current email list
+    /// to the backend subscription.
+    case emailUpdated
+
     /// Notification permission flipped; `granted` is the new value.
     case permissionChanged(granted: Bool)
 
@@ -74,6 +90,10 @@ enum AppsOnAirSyncReason: CustomStringConvertible, Equatable {
         case .tagsRemoved:      return "tagsRemoved"
         case .tagsFetched:      return "tagsFetched"
         case .languageSet:      return "languageSet"
+        case .aliasAdded:       return "aliasAdded"
+        case .aliasRemoved:     return "aliasRemoved"
+        case .aliasesFetched:   return "aliasesFetched"
+        case .emailUpdated:     return "emailUpdated"
         case .permissionChanged(let granted):
             return "permission changed → \(granted)"
         }

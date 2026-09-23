@@ -164,12 +164,18 @@ extension AppPushService {
             AppPushService.shared.aliases[label] = id
             persistAliases()
             AppPushService.log("Alias added: \(label)=\(id)", level: .debug)
+            // Sync the local alias map to the backend subscription —
+            // POST /v1/subscriptions/<id>/alias, gated on connectivity.
+            AppPushService.syncAliasesIfReady(reason: .aliasAdded)
         }
 
         /// Add multiple aliases at once.
         public static func addAliases(_ aliases: [String: String]) {
             aliases.forEach { AppPushService.shared.aliases[$0.key] = $0.value }
             persistAliases()
+            // Sync the local alias map to the backend subscription —
+            // POST /v1/subscriptions/<id>/alias, gated on connectivity.
+            AppPushService.syncAliasesIfReady(reason: .aliasAdded)
         }
 
         /// Remove an alias by label.
@@ -177,12 +183,39 @@ extension AppPushService {
             AppPushService.shared.aliases.removeValue(forKey: label)
             persistAliases()
             AppPushService.log("Alias removed: \(label)", level: .debug)
+            // Drop the label from the backend subscription's alias map —
+            // POST /v1/subscriptions/<id>/alias/remove, gated on connectivity.
+            AppPushService.syncAliasRemovalIfReady(labels: [label], reason: .aliasRemoved)
         }
 
         /// Remove multiple aliases by label.
         public static func removeAliases(_ labels: [String]) {
             labels.forEach { AppPushService.shared.aliases.removeValue(forKey: $0) }
             persistAliases()
+            // Drop the labels from the backend subscription's alias map —
+            // POST /v1/subscriptions/<id>/alias/remove, gated on connectivity.
+            AppPushService.syncAliasRemovalIfReady(labels: labels, reason: .aliasRemoved)
+        }
+
+        /// The aliases currently known for this user, as a `[label: id]` map.
+        ///
+        /// Synchronous — reads the local cache. The SDK keeps the cache in step
+        /// with the backend: `GET /v1/subscriptions/<id>/alias` runs after
+        /// `initialize()`, right after the device first registers, and on `login()`.
+        /// Use `getAliases(_:)` when you need to force a fetch and read the result.
+        public static func getAliases() -> [String: String] {
+            AppPushService.shared.aliases
+        }
+
+        /// Force a backend fetch of this user's aliases and hand back the parsed
+        /// `[label: id]` map on the main actor.
+        ///
+        /// Calls `GET /v1/subscriptions/<id>/alias` (gated on connectivity) and
+        /// refreshes the local cache from the response. `completion` receives the
+        /// backend aliases on success, or the local cache when the request could not
+        /// be sent, errored, or returned an unusable body.
+        public static func getAliases(_ completion: @escaping @MainActor ([String: String]) -> Void) {
+            AppPushService.refreshAliasesIfReady(reason: .aliasesFetched, completion: completion)
         }
 
         // MARK: - Email
@@ -193,6 +226,15 @@ extension AppPushService {
             AppPushService.shared.emails.append(address)
             persistEmails()
             AppPushService.log("Email added: \(address)", level: .debug)
+            // Sync the updated email list to the backend subscription —
+            // PATCH /v1/subscriptions/<id> { "emails": [...] }, gated on connectivity.
+            AppPushService.syncEmailIfReady(reason: .emailUpdated)
+        }
+
+        /// The email addresses currently associated with this user.
+        /// Synchronous — reads the local cache.
+        public static func getEmails() -> [String] {
+            AppPushService.shared.emails
         }
 
         /// Remove an email address association.
@@ -200,6 +242,9 @@ extension AppPushService {
             AppPushService.shared.emails.removeAll { $0 == address }
             persistEmails()
             AppPushService.log("Email removed: \(address)", level: .debug)
+            // Sync the updated email list to the backend subscription —
+            // PATCH /v1/subscriptions/<id> { "emails": [...] }, gated on connectivity.
+            AppPushService.syncEmailIfReady(reason: .emailUpdated)
         }
 
         // MARK: - SMS (AOA:Future — not covered in push SDK scope, will be added in a future release)

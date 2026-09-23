@@ -3,7 +3,7 @@ Pod::Spec.new do |s|
   # Source of truth for the runtime SDK version — AppsOnAirDeviceInfo.sdkVersion
   # reads this back via SdkManager (org.cocoapods.AppsOnAir-AppPush). Keep
   # AppsOnAirDeviceInfo.fallbackSDKVersion in sync for the SPM-as-source case.
-  s.version          = '1.0.0-beta'
+  s.version          = '1.0.1-beta'
   s.summary          = 'AppsOnAir Push Notifications SDK for iOS'
   s.description      = <<-DESC
     Lightweight iOS push notification SDK using APNs directly. No Firebase dependency.
@@ -23,12 +23,23 @@ Pod::Spec.new do |s|
   # `pod 'AppsOnAir-AppPush'` installs only this subspec by default.
   s.default_subspecs = 'Core'
 
+  # ── Shared — Foundation-only code used by both Core and ServiceExtension ──────
+  # Contains EnvironmentConfig (API base URLs) and AppsOnAirStorageKeys (App Group
+  # key constants). Must be Foundation-only — UIKit is unavailable in NSE process.
+  # Not listed in default_subspecs; pulled in transitively via Core/ServiceExtension.
+  s.subspec 'Shared' do |shared|
+    shared.source_files = 'Sources/AppsOnAirPushShared/**/*.swift'
+    shared.frameworks   = 'Foundation'
+  end
+
   # ── Core — link to your main app target ───────────────────────────────────────
   s.subspec 'Core' do |core|
     core.source_files = 'Sources/AppsOnAirPush/**/*.swift'
     core.frameworks   = 'UIKit', 'UserNotifications', 'Security', 'BackgroundTasks'
     # Shared device/app metadata + app-id resolution used by AppsOnAirDeviceInfo.
     core.dependency 'AppsOnAir-Core', '>= 1.2.3'
+    # EnvironmentConfig + AppsOnAirStorageKeys live in the Shared subspec.
+    core.dependency 'AppsOnAir-AppPush/Shared'
   end
 
   # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
@@ -37,6 +48,8 @@ Pod::Spec.new do |s|
   s.subspec 'ServiceExtension' do |ext|
     ext.source_files = 'Sources/AppsOnAirPushServiceExt/**/*.swift'
     ext.frameworks   = 'Foundation', 'UserNotifications'
+    # EnvironmentConfig + AppsOnAirStorageKeys live in the Shared subspec.
+    ext.dependency 'AppsOnAir-AppPush/Shared'
   end
 
   # ── ContentExtension — link to your Notification Content Extension target ONLY ─
