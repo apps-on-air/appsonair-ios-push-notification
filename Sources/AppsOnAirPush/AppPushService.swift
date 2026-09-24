@@ -279,10 +279,8 @@ public final class AppPushService: NSObject {
     }
 
     /// Backend-assigned subscription ID for this device.
-    /// Nil until the host app calls /subscriptions on the backend and receives the response.
-    ///
-    /// TODO: This should be set automatically by the SDK once the /subscriptions BE API is integrated.
-    /// For now, the host app must call setSubscriptionId(_:) after receiving the ID from the backend.
+    /// Set automatically by the SDK after a successful POST /v1/subscriptions response.
+    /// Nil until the first successful registration.
     public static var subscriptionId: String? {
         get { shared.storage.subscriptionId }
         set {
@@ -298,11 +296,9 @@ public final class AppPushService: NSObject {
         }
     }
 
-    /// Call this once the backend returns a subscription ID after POST /subscriptions.
-    /// Persists the ID and includes it in all subsequent event reports (open, click, delivery).
-    ///
-    /// TODO: Remove this method once the SDK calls /subscriptions internally and sets
-    /// subscriptionId automatically from the response.
+    /// Manually set the subscription ID. For internal SDK use only — the SDK sets
+    /// this automatically from the POST /v1/subscriptions response. Only call this
+    /// if your integration bypasses the SDK's registration flow.
     public static func setSubscriptionId(_ id: String) {
         guard !id.isEmpty else {
             log("setSubscriptionId() failed — id cannot be empty.", level: .error)
@@ -318,8 +314,7 @@ public final class AppPushService: NSObject {
         get { UserDefaults.standard.bool(forKey: "com.appsonair.push.isTestDevice") }
         set {
             UserDefaults.standard.set(newValue, forKey: "com.appsonair.push.isTestDevice")
-            log("isTestDevice set to \(newValue). " +
-                "TODO: include in next POST /subscriptions call.", level: .debug)
+            log("isTestDevice set to \(newValue).", level: .debug)
         }
     }
 
@@ -437,6 +432,7 @@ public final class AppPushService: NSObject {
 
                     // Success — this is the one registration for this launch.
                     shared.didRegisterSubscription = true
+                    shared.storage.markRegistrationComplete()
 
                     guard let data,
                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -640,6 +636,7 @@ public final class AppPushService: NSObject {
                         groupDefaults.removeObject(forKey: AppsOnAirStorageKeys.AppGroup.subscriptionId)
                         groupDefaults.synchronize()
                     }
+                    shared.storage.resetRegistrationRequired()
                     shared.didRegisterSubscription = false
                     registerSubscriptionIfReady(reason: .logout)
                 }
@@ -998,8 +995,12 @@ public final class AppPushService: NSObject {
                     log("Notification permission granted.", level: .info)
                     #if targetEnvironment(simulator)
                     let mockToken = "SIMULATOR-\(deviceId)"
+                    let alreadyHasToken = shared.storage.getApnsToken() == mockToken
                     shared.storage.saveApnsToken(mockToken)
-                    shared.listener?.onAPNsTokenUpdated(token: mockToken, environment: .sandbox)
+                    // Only fire if initialize() hasn't already fired it (autoRegisterForRemoteNotifications = true).
+                    if !alreadyHasToken {
+                        shared.listener?.onAPNsTokenUpdated(token: mockToken, environment: .sandbox)
+                    }
                     #else
                     // Token was already requested at launch; re-assert so a fresh
                     // token callback fires if that first registration failed.
@@ -1227,6 +1228,7 @@ public final class AppPushService: NSObject {
         // Compare against the token we had before overwriting it — a non-empty
         // previous value that differs means APNs rotated the token.
         let previousToken = shared.storage.getApnsToken()
+        let isNewToken = previousToken == nil || previousToken != hex
         let didRotate = (previousToken.map { !$0.isEmpty && $0 != hex }) ?? false
 
         shared.storage.saveApnsToken(hex)
@@ -1246,6 +1248,13 @@ public final class AppPushService: NSObject {
             updatePushTokenIfRotated(reason: .apnsTokenRotated)
         }
 
+        // Only fire the listener when the token is genuinely new or changed.
+        // APNs can call didRegisterForRemoteNotificationsWithDeviceToken more than
+        // once per launch (e.g. initialize() + requestPermission() both call
+        // registerForRemoteNotifications()). Suppress the duplicate when the token
+        // hasn't changed so the developer's onAPNsTokenUpdated is called exactly once
+        // per unique token.
+        guard isNewToken else { return }
         shared.listener?.onAPNsTokenUpdated(token: hex, environment: env)
     }
 

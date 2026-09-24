@@ -1,9 +1,26 @@
 # AppsOnAir-AppPush — iOS SDK
 
-APNs token registration, rich media attachments, badge management, background sync, and user targeting — all in one SDK. Works with UIKit, SwiftUI, and Objective-C.
+Add push notifications to your iOS app in minutes. The SDK handles APNs device registration, permission management, rich media attachments, badge tracking, and analytics (delivered, opened, clicked) out of the box — with no Firebase dependency.
 
-> **Alpha — Internal Use Only**
-> ⚠️ This SDK is in active development and is not yet ready for production. APIs may change without notice. Do not distribute or use in customer-facing apps. Internal team and approved QA reviewers only.
+- **User targeting** — segment by tags, language, aliases, and email
+- **Rich notifications** — images, videos, action buttons, and text overrides via a Notification Service Extension
+- **Analytics** — delivered, opened, and clicked events tracked automatically across foreground, background, and killed states
+- **Flexible** — works with UIKit, SwiftUI, and Objective-C; swizzling is optional
+
+> [!WARNING]
+> **Beta release — not for production use.**
+>
+> `1.0.2-beta` is an early access release intended for evaluation, integration testing, and
+> prototype builds. Do not ship this version in a production app or a build with a large user base.
+>
+> - The public API may change between releases without a deprecation period.
+> - Breaking changes are not restricted to major versions while the SDK is in beta.
+> - Behavior in production-scale environments has not been fully validated.
+>
+> Use a patch-permissive constraint so patch releases flow through automatically, and re-test
+> your integration on every upgrade.
+
+For full documentation visit [documentation.appsonair.com](https://documentation.appsonair.com).
 
 ---
 
@@ -48,9 +65,13 @@ APNs token registration, rich media attachments, badge management, background sy
 
 ### Swift Package Manager
 
-File → Add Package Dependencies → paste the repo URL.
+In Xcode: **File → Add Package Dependencies** → enter the repository URL:
 
-Link the right product to each target:
+```
+https://github.com/apps-on-air/appsonair-ios-push-notification
+```
+
+Set the version rule to **Up to Next Minor Version** from `1.0.2-beta` — this accepts patch releases (`1.0.2-beta`, `1.0.2`, …) automatically without any change on your side, and blocks minor bumps (`1.1+`) that may carry breaking changes. Then link the right product to each target:
 
 | Product | Add to |
 |---|---|
@@ -61,18 +82,21 @@ Link the right product to each target:
 ### CocoaPods
 
 ```ruby
+# '>= 1.0.2-beta', '< 1.1' — accepts patch releases automatically; blocks minor bumps.
 target 'MyApp' do
-  pod 'AppsOnAir-AppPush'
+  pod 'AppsOnAir-AppPush', '>= 1.0.2-beta', '< 1.1'
 end
 
 target 'MyNotificationServiceExtension' do
-  pod 'AppsOnAir-AppPush/ServiceExtension'
+  pod 'AppsOnAir-AppPush/ServiceExtension', '>= 1.0.2-beta', '< 1.1'
 end
 
 target 'MyNotificationContentExtension' do
-  pod 'AppsOnAir-AppPush/ContentExtension'
+  pod 'AppsOnAir-AppPush/ContentExtension', '>= 1.0.2-beta', '< 1.1'
 end
 ```
+
+> **CocoaPods import names** — All subspecs share the same module. Use `import AppsOnAir_AppPush` everywhere — in your main app, NSE, and CE targets. The `AppsOnAir_AppPush_ServiceExt` and `AppsOnAir_AppPush_ContentExt` module names are SPM-only.
 
 ---
 
@@ -82,7 +106,7 @@ end
    Target → Signing & Capabilities → + Capability → Push Notifications
 
 2. **Background Modes**
-   + Capability → Background Modes → check **Background fetch**
+   + Capability → Background Modes → check **Remote notifications**
 
 3. **App ID in Info.plist** (main app target only)
    ```xml
@@ -122,10 +146,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 extension AppDelegate: PushListener {
 
     func onAPNsTokenUpdated(token: String, environment: APNsEnvironment) {
-        // No action required — the SDK automatically registers this device
-        // with the backend (POST /v1/subscriptions) and stores the returned
-        // subscriptionId. setSubscriptionId() is only needed if you want to
-        // force a different value manually.
+        // No action required — the SDK automatically registers this device.
+        // setSubscriptionId() is only needed if you want to set a value manually.
     }
 
     func onNotificationReceived(notification: PushNotification) {
@@ -235,6 +257,7 @@ AppPushService.Debug.logLevel = .verbose
 | Level | What you see |
 |---|---|
 | `.none` | Nothing (default for production) |
+| `.fatal` | Fatal errors only |
 | `.error` | Errors that affect SDK behaviour |
 | `.warn` | Unexpected but recoverable situations |
 | `.info` | Key lifecycle events |
@@ -245,9 +268,9 @@ AppPushService.Debug.logLevel = .verbose
 
 ## User Identity
 
-`login()` links this device to your user's account on the backend; `logout()` unlinks it and registers a fresh anonymous subscription.
+`login()` links this device to your user's account; `logout()` unlinks it — the device reverts to anonymous and continues receiving pushes.
 
-Call `login` when your user signs in and `logout` when they sign out. Tags, aliases, and language are wiped on logout; the APNs token and device ID stay — the device keeps receiving pushes as an anonymous user until the next login.
+Call `login` when your user signs in and `logout` when they sign out. Tags, aliases, and language are cleared on logout — the device keeps receiving pushes as an anonymous user until the next login.
 
 ```swift
 // Swift
@@ -278,10 +301,10 @@ AppPushService.User.addTags(["plan": "premium", "region": "us"])
 AppPushService.User.removeTag("plan")
 AppPushService.User.removeTags(["plan", "region"])
 
-// Read from local cache (synchronous)
+// Synchronous — returns locally stored tags
 let tags = AppPushService.User.getTags()
 
-// Fetch fresh copy from backend (async)
+// Async — fetches latest tags from the server
 AppPushService.User.getTags { tags in
     print(tags)
 }
@@ -294,10 +317,10 @@ AppPushService.User.getTags { tags in
 [AOAPushUser removeTag:@"plan"];
 [AOAPushUser removeTags:@[@"plan", @"region"]];
 
-// Local cache
+// Synchronous — returns locally stored tags
 NSDictionary *tags = [AOAPushUser getTags];
 
-// Backend fetch
+// Async — fetches latest tags from the server
 [AOAPushUser fetchTagsFromBackendWithCompletion:^(NSDictionary *tags) {
     NSLog(@"%@", tags);
 }];
@@ -357,11 +380,11 @@ AppPushService.User.removeEmail("user@example.com")
 
 ### Push Subscription (opt-in / opt-out)
 
-Lets the user stop receiving pushes without revoking OS-level permission. The APNs token is kept — opt back in and pushes resume immediately.
+Lets the user stop receiving pushes without revoking OS-level permission. Opt back in at any time and pushes resume immediately.
 
 ```swift
 // Swift
-AppPushService.User.pushSubscription.optOut()   // stop receiving pushes (token preserved)
+AppPushService.User.pushSubscription.optOut()   // stop receiving pushes
 AppPushService.User.pushSubscription.optIn()
 
 let isOptedIn = AppPushService.User.pushSubscription.optedIn
@@ -381,7 +404,7 @@ NSString *subId = [AOAPushUser pushSubscriptionId];
 
 ### Observers
 
-React to subscription state changes (opt-in/out, token rotation) and login/logout events without polling. Add observers early — they fire immediately with the current state on first add.
+React to opt-in/out changes and login/logout events without polling. Add observers early — they fire immediately with the current state on first add.
 
 ```swift
 // Swift
@@ -484,11 +507,12 @@ func onNotificationPermissionDidChange(_ permission: Bool) { }
 
 By default the SDK shows banners even when the app is in the foreground. Add a lifecycle listener to intercept and call `preventDefault()` on any notification you want to handle silently.
 
-This hook is purely a client-side display control — it never reports to the backend. Confirmed delivery is already tracked separately via the Notification Service Extension's `delivered` receipt (see [Notification Service Extension](#notification-service-extension)), which fires regardless of whether the app is foreground, background, or not running.
+This hook controls how the notification is displayed on screen — it has no effect on delivery analytics.
 
 ```swift
 // Swift
 AppPushService.Notifications.addForegroundLifecycleListener(self)
+AppPushService.Notifications.removeForegroundLifecycleListener(self)
 
 func onWillDisplay(event: NotificationWillDisplayEvent) {
     // Call preventDefault() to suppress the banner; omit to show it normally
@@ -499,6 +523,7 @@ func onWillDisplay(event: NotificationWillDisplayEvent) {
 ```objc
 // Objective-C — AOANotificationLifecycleListener
 [AOAPushNotifications addForegroundLifecycleListener:self];
+[AOAPushNotifications removeForegroundLifecycleListener:self];
 
 - (void)onWillDisplayWithEvent:(AOANotificationWillDisplayEvent *)event {
     [event preventDefault];
@@ -509,11 +534,12 @@ func onWillDisplay(event: NotificationWillDisplayEvent) {
 
 Fired when the user taps a notification or one of its action buttons. Use `event.result.actionId` to distinguish which button was tapped, and `event.result.url` for deep link handling.
 
-Independently of this listener, every open/click is automatically queued and reported to the backend (`POST /v1/events/opened` or `/v1/events/clicked`) on the next app foreground — no extra code required.
+Analytics for opens and clicks are reported automatically — no extra code required.
 
 ```swift
 // Swift
 AppPushService.Notifications.addClickListener(self)
+AppPushService.Notifications.removeClickListener(self)
 
 func onClick(event: NotificationClickEvent) {
     print(event.result.actionId ?? "body tap")
@@ -524,6 +550,7 @@ func onClick(event: NotificationClickEvent) {
 ```objc
 // Objective-C — AOANotificationClickListener
 [AOAPushNotifications addClickListener:self];
+[AOAPushNotifications removeClickListener:self];
 
 - (void)onClickWithEvent:(AOANotificationClickEvent *)event {
     NSLog(@"action: %@  url: %@",
@@ -590,7 +617,7 @@ Push-driven badge updates (`badge` / `badge_increment` payload keys) work via th
 
 ## GDPR Consent
 
-> **Note:** Consent enforcement is not yet active. Setting these values persists them to `UserDefaults`, but the SDK does not yet hold network calls behind them. Full enforcement is coming in a future release.
+> **Note:** Consent enforcement is not yet active. The SDK does not yet gate network calls behind these values. Full enforcement is coming in a future release.
 
 Set `consentRequired = true` **before** `initialize()` if your app needs explicit user consent before any data is sent. Consent is persisted — you don't need to set it again on relaunch.
 
@@ -715,7 +742,7 @@ Add the same App Group capability to the NSE target.
 
 **3. Link `AppsOnAir-AppPush-ServiceExt` to the NSE target only**
 
-Never link it to the main app — UIKit is unavailable in an NSE process.
+Link to your NSE target only — never add it to the main app target.
 
 **4. Add `mutable-content: 1` to every push payload**
 
@@ -732,7 +759,10 @@ Without this iOS never invokes the NSE.
 ### Swift — subclass
 
 ```swift
+// SPM:
 import AppsOnAir_AppPush_ServiceExt
+// CocoaPods:
+// import AppsOnAir_AppPush
 
 class NotificationService: AppsOnAirNotificationServiceExtension {
     // No code required — media download, text overrides, badge, delivery receipt are automatic.
@@ -748,7 +778,9 @@ class NotificationService: AppsOnAirNotificationServiceExtension {
 ### Swift — free functions (if you already have your own NSE subclass)
 
 ```swift
+// SPM:
 import AppsOnAir_AppPush_ServiceExt
+// CocoaPods: import AppsOnAir_AppPush
 
 class NotificationService: UNNotificationServiceExtension {
 
@@ -766,7 +798,7 @@ class NotificationService: UNNotificationServiceExtension {
 
 ### Objective-C
 
-> ObjC cannot subclass `AppsOnAirNotificationServiceExtension` (Swift 6.2 `@MainActor` restriction). Subclass `UNNotificationServiceExtension` directly and call `AOAPushExtension` static methods — behaviour is identical.
+> ObjC cannot subclass `AppsOnAirNotificationServiceExtension`. Subclass `UNNotificationServiceExtension` directly and call `AOAPushExtension` static methods — behaviour is identical.
 
 ```objc
 // NotificationService.h
@@ -778,7 +810,9 @@ class NotificationService: UNNotificationServiceExtension {
 
 // NotificationService.m
 #import "NotificationService.h"
-@import AppsOnAir_AppPush_ServiceExt;
+// SPM: @import AppsOnAir_AppPush_ServiceExt;
+// CocoaPods:
+@import AppsOnAir_AppPush;
 
 @interface NotificationService ()
 @property (nonatomic, strong) UNNotificationRequest            *receivedRequest;
@@ -794,7 +828,6 @@ class NotificationService: UNNotificationServiceExtension {
     self.contentHandler     = contentHandler;
     self.bestAttemptContent = [request.content mutableCopy];
 
-    // SDK calls contentHandler before returning.
     [AOAPushExtension didReceiveNotificationRequest:request
                               withContentHandler:contentHandler];
     self.contentHandler = nil;
@@ -850,7 +883,9 @@ Set `NSExtensionPrincipalClass` to `AppsOnAirContentViewController` in Info.plis
 ### Swift — subclass for custom behaviour
 
 ```swift
+// SPM:
 import AppsOnAir_AppPush_ContentExt
+// CocoaPods: import AppsOnAir_AppPush
 
 class MyContentVC: AppsOnAirContentViewController {
     override func configure(with notification: UNNotification) {
@@ -864,7 +899,7 @@ Set `$(PRODUCT_MODULE_NAME).MyContentVC` as `NSExtensionPrincipalClass`.
 
 ### Objective-C
 
-> ObjC cannot subclass `AppsOnAirContentViewController` (same `@MainActor` restriction as the NSE). Subclass `UIViewController` and implement `UNNotificationContentExtension` — the UI is simple to build in ObjC.
+> ObjC cannot subclass `AppsOnAirContentViewController`. Subclass `UIViewController` and implement `UNNotificationContentExtension` directly — the UI is straightforward to build in ObjC.
 
 ```objc
 // NotificationViewController.h
@@ -912,7 +947,7 @@ Set `NSExtensionPrincipalClass` to `NotificationViewController` (no module prefi
 
 ## Background Fetch
 
-The SDK uses `BGProcessingTask` to sync subscription state and flush queued data while the app is in the background. Register the handler at launch, schedule it once — iOS controls when it actually fires.
+The SDK uses a background task to keep subscription state and analytics in sync while the app is in the background. Register the handler at launch, schedule it once — iOS controls when it actually fires.
 
 Add the task identifier to **Info.plist** first:
 ```xml
@@ -993,10 +1028,10 @@ The custom keys your backend sends alongside the standard `aps` dictionary. `not
 | `subtitle` | String | Overrides `aps.alert.subtitle`. NSE only |
 | `big_picture` | String (https) | Primary image. NSE only. Takes precedence over `image_url` and `large_icon` |
 | `image_url` | String (https) | Image attachment fallback. NSE only. Used when `big_picture` is absent |
-| `large_icon` | String (https) | Thumbnail image (Android right-side icon). On iOS mapped to the same `UNNotificationAttachment` — only used when neither `big_picture` nor `image_url` is present |
+| `large_icon` | String (https) | Fallback image. NSE only. Used only when neither `big_picture` nor `image_url` is present |
 | `video_url` | String (https) | Video attachment. NSE only. Used only when no image key is present |
 | `attachments` | `[String]` or `[{"url":"…"}]` | Multiple attachments (first 3). NSE only. Wins over all other image/video keys |
-| `actions` | `[{"id":"…","title":"…"}]` | Action buttons shown in the expanded notification. NSE registers them as a `UNNotificationCategory` |
+| `actions` | `[{"id":"…","title":"…"}]` | Action buttons shown in the expanded notification. NSE only |
 | `badge` | Int | Absolute badge count. NSE + App Group |
 | `badge_increment` | Int | Delta added to running total. NSE + App Group. Wins over `badge` |
 
@@ -1010,23 +1045,22 @@ Every public method and property. Swift and ObjC side by side.
 
 | Method / Property | Swift | Objective-C | Notes |
 |---|---|---|---|
-| Initialize | `AppPushService.initialize(debug:swizzle:)` | `[AOAPush initializeWithDebug:swizzle:]` | Triggers automatic device registration |
-| Set Listener | `AppPushService.setListener(_:)` | `[AOAPush setListener:]` | Local callback only |
-| Device ID | `AppPushService.deviceId` | `[AOAPush deviceId]` | Keychain-backed, local read |
-| Subscription ID | `AppPushService.subscriptionId` | `[AOAPush subscriptionId]` | Assigned automatically from registration response |
+| Initialize | `AppPushService.initialize(debug:swizzle:)` | `[AOAPush initializeWithDebug:swizzle:]` | Call once at launch — registers device automatically |
+| Set Listener | `AppPushService.setListener(_:)` | `[AOAPush setListener:]` | Receive token, notification, and error callbacks |
+| Device ID | `AppPushService.deviceId` | `[AOAPush deviceId]` | Stable unique device identifier, persists across reinstalls |
+| Subscription ID | `AppPushService.subscriptionId` | `[AOAPush subscriptionId]` | Set automatically after registration |
 | Set Subscription ID | `AppPushService.setSubscriptionId(_:)` | `[AOAPush setSubscriptionId:]` | Manual override — not required for normal use |
-| Test Device | `AppPushService.isTestDevice` | `[AOAPush isTestDevice]` | Stored locally |
-| APNs Environment | `AppPushService.apnsEnvironment` | `[AOAPush apnsEnvironment]` | Read from entitlements |
-| Auto-register APNs | `AppPushService.autoRegisterForRemoteNotifications` | `[AOAPush setAutoRegisterForRemoteNotifications:]` | Local setting |
-| Request Permission | `AppPushService.requestPermission()` | `[AOAPush requestPermission]` | OS dialog — triggers `enabled` sync after grant/deny |
-| Is Permission Granted | `await AppPushService.isPermissionGranted()` | `[AOAPush isPermissionGrantedWithCompletion:]` | Local read |
-| Login | `AppPushService.login(_:)` | `[AOAPush login:]` | Syncs external ID to backend |
-| Logout | `AppPushService.logout()` | `[AOAPush logout]` | Deletes subscription, re-registers anonymously |
+| APNs Environment | `AppPushService.apnsEnvironment` | `[AOAPush apnsEnvironment]` | Sandbox or production |
+| Auto-register APNs | `AppPushService.autoRegisterForRemoteNotifications` | `[AOAPush setAutoRegisterForRemoteNotifications:]` | Default: `true` |
+| Request Permission | `AppPushService.requestPermission()` | `[AOAPush requestPermission]` | Shows the OS permission dialog |
+| Is Permission Granted | `await AppPushService.isPermissionGranted()` | `[AOAPush isPermissionGrantedWithCompletion:]` | Returns current permission status |
+| Login | `AppPushService.login(_:)` | `[AOAPush login:]` | Links this device to your user account |
+| Logout | `AppPushService.logout()` | `[AOAPush logout]` | Unlinks user — clears tags and aliases, device stays registered |
 | Consent Required | `AppPushService.consentRequired` | `[AOAPush setConsentRequired:]` | Set before `initialize()` |
-| Consent Given | `AppPushService.consentGiven` | `[AOAPush setConsentGiven:]` | Set after user accepts |
-| Silent Push | `AppPushService.onSilentPushReceived` | `[AOAPush handleSilentPush:fetchCompletionHandler:]` | Host-defined background handler |
-| Clear Notifications | `AppPushService.clearAllNotifications()` | `[AOAPush clearAllNotifications]` | Removes all from tray |
-| Badge Count | `AppPushService.badgeCount` | `[AOAPush badgeCount]` | Read from App Group |
+| Consent Given | `AppPushService.consentGiven` | `[AOAPush setConsentGiven:]` | Set after user accepts your consent dialog |
+| Silent Push | `AppPushService.onSilentPushReceived` | `[AOAPush handleSilentPush:fetchCompletionHandler:]` | Handle background silent pushes |
+| Clear Notifications | `AppPushService.clearAllNotifications()` | `[AOAPush clearAllNotifications]` | Removes all delivered notifications from the tray |
+| Badge Count | `AppPushService.badgeCount` | `[AOAPush badgeCount]` | Current badge number |
 | Set Badge | `AppPushService.setBadgeCount(_:)` | `[AOAPush setBadgeCount:]` | Sets absolute value |
 | Increment Badge | `AppPushService.incrementBadgeCount(by:)` | `[AOAPush incrementBadgeCountBy:]` | Delta (can be negative) |
 | Clear Badge | `AppPushService.clearBadgeCount()` | `[AOAPush clearBadgeCount]` | Resets to 0 |
@@ -1034,7 +1068,7 @@ Every public method and property. Swift and ObjC side by side.
 | APNs Token (manual) | `AppPushService.handleAPNsToken(_:)` | `[AOAPush handleAPNsToken:]` | Required when `swizzle: false` |
 | APNs Error (manual) | `AppPushService.handleAPNsRegistrationError(_:)` | `[AOAPush handleAPNsRegistrationError:]` | Required when `swizzle: false` |
 | Will Present (manual) | `AppPushService.handleWillPresent(notification:)` | `[AOAPush handleWillPresentWithNotification:]` | Required when `swizzle: false` |
-| Did Receive (manual) | `AppPushService.handleDidReceive(response:)` | `[AOAPush handleDidReceiveWithResponse:]` | Required when `swizzle: false` — reports open/click event |
+| Did Receive (manual) | `AppPushService.handleDidReceive(response:)` | `[AOAPush handleDidReceiveWithResponse:]` | Required when `swizzle: false` |
 
 ### `AppPushService.Debug` / `AOAPushDebug`
 
@@ -1081,15 +1115,18 @@ Every public method and property. Swift and ObjC side by side.
 | Can Request | `Notifications.canRequestPermission` | `[AOAPushNotifications canRequestPermission]` |
 | Refresh Permission | `await Notifications.refreshPermission()` | `[AOAPushNotifications refreshPermissionWithCompletion:]` |
 | Permission Observer | `Notifications.addPermissionObserver(_:)` | `[AOAPushNotifications addPermissionObserver:]` |
+| Remove Permission Observer | `Notifications.removePermissionObserver(_:)` | `[AOAPushNotifications removePermissionObserver:]` |
 | Lifecycle Listener | `Notifications.addForegroundLifecycleListener(_:)` | `[AOAPushNotifications addForegroundLifecycleListener:]` |
+| Remove Lifecycle Listener | `Notifications.removeForegroundLifecycleListener(_:)` | `[AOAPushNotifications removeForegroundLifecycleListener:]` |
 | Click Listener | `Notifications.addClickListener(_:)` | `[AOAPushNotifications addClickListener:]` |
+| Remove Click Listener | `Notifications.removeClickListener(_:)` | `[AOAPushNotifications removeClickListener:]` |
 | Clear All | `Notifications.clearAllNotifications()` | `[AOAPushNotifications clearAllNotifications]` |
 | Remove by ID | `Notifications.removeNotification(withIdentifier:)` | `[AOAPushNotifications removeNotificationWithIdentifier:]` |
 | Remove by IDs | `Notifications.removeNotifications(withIdentifiers:)` | `[AOAPushNotifications removeNotificationsWithIdentifiers:]` |
 
 ### `AppsOnAirBackgroundSync` / `AOAPushBackgroundSync`
 
-All local `BGTaskScheduler` plumbing — scheduling itself makes no network call. The task it runs flushes queued events, tag sync, and session data — all fully wired to the backend.
+Schedules and manages the background sync task.
 
 | Method / Property | Swift | Objective-C |
 |---|---|---|
@@ -1100,7 +1137,7 @@ All local `BGTaskScheduler` plumbing — scheduling itself makes no network call
 
 ### NSE helper — `AppPushServiceExtension` / `AOAPushExtension`
 
-Use inside a Notification Service Extension target only. Delivery receipts queued here are POSTed by the main app's event queue on the next foreground (`POST /v1/events/delivered`); the NSE itself never makes a direct network call.
+Use inside a Notification Service Extension target only. Handles media downloads, text overrides, badge updates, and delivery analytics automatically.
 
 | Method | Swift | Objective-C |
 |---|---|---|
@@ -1176,4 +1213,3 @@ Most issues are a missing capability, wrong Info.plist key, or wrong call order.
 | `BGTaskScheduler` error | Missing Info.plist entry | Add `com.appsonair.push.background-sync` to `BGTaskSchedulerPermittedIdentifiers` |
 | Badge not updating | NSE not running | Verify `mutable-content: 1` and App Group are configured |
 | ObjC compile error `objc_subclassing_restricted` | Trying to subclass `AppsOnAirNotificationServiceExtension` or `AppsOnAirContentViewController` from ObjC | Use `AOAPushExtension` static methods (NSE) or pure `UIViewController` (CE) — see setup sections above |
-

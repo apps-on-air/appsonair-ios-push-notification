@@ -1,3 +1,8 @@
+## 1.0.2-beta
+- Minor SDK improvements.
+- Email and Alias method integration.
+
+
 ## 1.0.1-beta
 - Minor SDK improvements.
 - Email and Alias method integration.

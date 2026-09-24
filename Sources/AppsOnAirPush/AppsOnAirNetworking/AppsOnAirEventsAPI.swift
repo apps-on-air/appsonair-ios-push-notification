@@ -58,7 +58,7 @@ enum AppsOnAirEventsAPI {
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
         guard let url = URL(string: EnvironmentConfig.eventDelivered) else {
-            print("[AppsOnAirEventsAPI] invalid endpoint URL '\(EnvironmentConfig.eventDelivered)'")
+            AppPushService.log("EventsAPI: invalid endpoint URL '\(EnvironmentConfig.eventDelivered)'", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -69,7 +69,7 @@ enum AppsOnAirEventsAPI {
             "send_id":         sendId
         ]
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
-            print("[AppsOnAirEventsAPI] failed to serialize body")
+            AppPushService.log("EventsAPI: failed to serialize delivered event body", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -81,17 +81,14 @@ enum AppsOnAirEventsAPI {
         request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion,  forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                           forHTTPHeaderField: "X-Platform")
-
-        print("[AppsOnAirEventsAPI] → POST \(url.absoluteString) (delivered)")
-        print("[AppsOnAirEventsAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
-        print("[AppsOnAirEventsAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
         request.httpBody = httpBody
+
+        AppPushService.log("EventsAPI: POST /v1/events/delivered notifId=\(notificationId)", level: .debug)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            print("[AppsOnAirEventsAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
-            print("[AppsOnAirEventsAPI]   response=\(text)")
+            AppPushService.log("EventsAPI: /v1/events/delivered HTTP \(status) response=\(text)", level: .debug)
             Task { @MainActor in
                 completion(data, response, error)
             }
@@ -112,7 +109,7 @@ enum AppsOnAirEventsAPI {
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
         guard let url = URL(string: EnvironmentConfig.eventOpened) else {
-            print("[AppsOnAirEventsAPI] invalid endpoint URL '\(EnvironmentConfig.eventOpened)'")
+            AppPushService.log("EventsAPI: invalid endpoint URL '\(EnvironmentConfig.eventOpened)'", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -124,7 +121,7 @@ enum AppsOnAirEventsAPI {
             "send_id":         sendId
         ]
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
-            print("[AppsOnAirEventsAPI] failed to serialize body")
+            AppPushService.log("EventsAPI: failed to serialize opened event body", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -136,17 +133,14 @@ enum AppsOnAirEventsAPI {
         request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion,  forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                           forHTTPHeaderField: "X-Platform")
-
-        print("[AppsOnAirEventsAPI] → POST \(url.absoluteString) (opened)")
-        print("[AppsOnAirEventsAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
-        print("[AppsOnAirEventsAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
         request.httpBody = httpBody
+
+        AppPushService.log("EventsAPI: POST /v1/events/opened notifId=\(notificationId)", level: .debug)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            print("[AppsOnAirEventsAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
-            print("[AppsOnAirEventsAPI]   response=\(text)")
+            AppPushService.log("EventsAPI: /v1/events/opened HTTP \(status) response=\(text)", level: .debug)
             Task { @MainActor in
                 completion(data, response, error)
             }
@@ -167,7 +161,7 @@ enum AppsOnAirEventsAPI {
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
         guard let url = URL(string: EnvironmentConfig.eventClicked) else {
-            print("[AppsOnAirEventsAPI] invalid endpoint URL '\(EnvironmentConfig.eventClicked)'")
+            AppPushService.log("EventsAPI: invalid endpoint URL '\(EnvironmentConfig.eventClicked)'", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -179,7 +173,7 @@ enum AppsOnAirEventsAPI {
             "action_id":       actionId
         ]
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
-            print("[AppsOnAirEventsAPI] failed to serialize body")
+            AppPushService.log("EventsAPI: failed to serialize clicked event body", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -191,17 +185,14 @@ enum AppsOnAirEventsAPI {
         request.setValue(AppPushService.shared._appId,    forHTTPHeaderField: "X-App-Id")
         request.setValue(AppsOnAirDeviceInfo.sdkVersion,  forHTTPHeaderField: "X-SDK-Version")
         request.setValue("ios",                           forHTTPHeaderField: "X-Platform")
-
-        print("[AppsOnAirEventsAPI] → POST \(url.absoluteString) (clicked)")
-        print("[AppsOnAirEventsAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
-        print("[AppsOnAirEventsAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
         request.httpBody = httpBody
+
+        AppPushService.log("EventsAPI: POST /v1/events/clicked notifId=\(notificationId) actionId=\(actionId)", level: .debug)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            print("[AppsOnAirEventsAPI] ← HTTP \(status) error=\(error?.localizedDescription ?? "nil")")
-            print("[AppsOnAirEventsAPI]   response=\(text)")
+            AppPushService.log("EventsAPI: /v1/events/clicked HTTP \(status) response=\(text)", level: .debug)
             Task { @MainActor in
                 completion(data, response, error)
             }

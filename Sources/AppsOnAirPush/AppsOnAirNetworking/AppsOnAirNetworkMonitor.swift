@@ -48,12 +48,12 @@ enum AppsOnAirNetworkMonitor {
     static func runWhenConnected(_ action: @escaping @MainActor () -> Void) {
         startListening()  // ensure listener is installed (idempotent)
         if isConnected {
-            print("[AppsOnAirNetworkMonitor] online — running action now")
+            AppPushService.log("NetworkMonitor: online — running action now", level: .debug)
             action()
             return
         }
         pending.append(action)
-        print("[AppsOnAirNetworkMonitor] offline — queued action (\(pending.count) pending)")
+        AppPushService.log("NetworkMonitor: offline — queued action (\(pending.count) pending)", level: .debug)
     }
 
     // MARK: - Private
@@ -63,7 +63,7 @@ enum AppsOnAirNetworkMonitor {
         listening = true
         AppPushService.shared.core.networkStatusListenerHandler { connected in
             Task { @MainActor in
-                print("[AppsOnAirNetworkMonitor] connectivity changed → \(connected)")
+                AppPushService.log("NetworkMonitor: connectivity changed → \(connected)", level: .debug)
                 guard connected else { return }
 
                 // Flush the persistent event queue immediately on reconnect so that
@@ -75,7 +75,7 @@ enum AppsOnAirNetworkMonitor {
                 guard !pending.isEmpty else { return }
                 let actions = pending
                 pending.removeAll()
-                print("[AppsOnAirNetworkMonitor] draining \(actions.count) queued action(s)")
+                AppPushService.log("NetworkMonitor: draining \(actions.count) queued action(s)", level: .debug)
                 actions.forEach { $0() }
             }
         }
