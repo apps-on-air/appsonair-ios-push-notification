@@ -53,7 +53,22 @@ final class PushAppDelegateSwizzler {
 
         swizzleToken(in: cls)
         swizzleFail(in: cls)
-        swizzleSilentPush(in: cls)
+
+        // Silent push must be installed on the class iOS actually calls the method on.
+        // With @UIApplicationDelegateAdaptor, UIApplication.shared.delegate is a SwiftUI
+        // wrapper, not the real AppDelegate. SwiftUI caches which methods to forward at
+        // startup — before this deferred swizzle runs — so adding didReceiveRemoteNotification
+        // to the real AppDelegate class after the fact is invisible to the wrapper's
+        // forwarding cache. When the two classes differ, install on the wrapper so iOS
+        // delivers silent push directly to our handler without depending on SwiftUI forwarding.
+        let silentPushTarget: AnyClass
+        if let rawDelegate = UIApplication.shared.delegate {
+            let rawCls: AnyClass = type(of: rawDelegate)
+            silentPushTarget = (rawCls !== cls) ? rawCls : cls
+        } else {
+            silentPushTarget = cls
+        }
+        swizzleSilentPush(in: silentPushTarget)
 
         // Notification center delegate was already installed synchronously in swizzle().
         // Install it here as a fallback only if it was not set there (e.g. if the host

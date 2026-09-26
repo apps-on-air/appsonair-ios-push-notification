@@ -60,4 +60,26 @@ final class PushStorage {
     func clearSession() {
         UserDefaultsService.delete(key: "com.appsonair.push.sessionId")
     }
+
+    // MARK: - Registration Required Flag
+    // Defaults to true on a fresh install (key absent in UserDefaults).
+    // Flipped to false after the first successful POST /v1/subscriptions (HTTP 2xx).
+    // Persists for the lifetime of the installation; reset to true only on
+    // uninstall/reinstall (UserDefaults is cleared by the OS on uninstall).
+    var isRegistrationRequired: Bool {
+        guard UserDefaults.standard.object(forKey: "com.appsonair.push.isRegistrationRequired") != nil else {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "com.appsonair.push.isRegistrationRequired")
+    }
+
+    func markRegistrationComplete() {
+        UserDefaults.standard.set(false, forKey: "com.appsonair.push.isRegistrationRequired")
+    }
+
+    /// Reset to true after a successful logout (DELETE /v1/subscriptions 2xx) so the
+    /// subsequent re-registration POST correctly reports `is_registration_required: true`.
+    func resetRegistrationRequired() {
+        UserDefaults.standard.removeObject(forKey: "com.appsonair.push.isRegistrationRequired")
+    }
 }

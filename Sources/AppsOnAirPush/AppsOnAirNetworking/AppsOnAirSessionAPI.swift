@@ -39,26 +39,6 @@ import AppsOnAir_AppPush_Shared
 @MainActor
 enum AppsOnAirSessionAPI {
 
-    // MARK: - Eye-catching log block helper
-    //
-    // Wraps a request/response log in '='/'-' rules so it's easy to spot while
-    // scrolling a noisy console.
-    //   ============================================================
-    //   [AppsOnAirSessionAPI] → START SESSION REQUEST
-    //   ------------------------------------------------------------
-    //   URL     : ...
-    //   ============================================================
-    nonisolated private static let logDivider = String(repeating: "=", count: 60)
-    nonisolated private static let logRule = String(repeating: "-", count: 60)
-
-    nonisolated private static func logBlock(_ title: String, _ lines: [String]) {
-        print(logDivider)
-        print("[AppsOnAirSessionAPI] \(title)")
-        print(logRule)
-        for line in lines { print(line) }
-        print(logDivider)
-    }
-
     /// Send POST /v1/sessions and return the raw result on the main actor.
     ///
     /// `completion` receives `(Data?, URLResponse?, Error?)` exactly as URLSession
@@ -70,19 +50,19 @@ enum AppsOnAirSessionAPI {
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
         guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
-            print("[AppsOnAirSessionAPI] no subscriptionId — start session not sent")
+            AppPushService.log("SessionAPI: no subscriptionId — start session not sent", level: .debug)
             completion(nil, nil, nil)
             return
         }
         guard let url = URL(string: EnvironmentConfig.startSession) else {
-            print("[AppsOnAirSessionAPI] invalid endpoint URL '\(EnvironmentConfig.startSession)'")
+            AppPushService.log("SessionAPI: invalid endpoint URL '\(EnvironmentConfig.startSession)'", level: .error)
             completion(nil, nil, nil)
             return
         }
 
         let body: [String: Any] = ["subscription_id": subscriptionId]
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
-            print("[AppsOnAirSessionAPI] failed to serialize body")
+            AppPushService.log("SessionAPI: failed to serialize start session body", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -96,20 +76,12 @@ enum AppsOnAirSessionAPI {
         request.setValue("ios",                           forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
-        logBlock("→ START SESSION REQUEST", [
-            "URL     : POST \(url.absoluteString)",
-            "Headers : X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios",
-            "Body    : \(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")"
-        ])
+        AppPushService.log("SessionAPI: POST /v1/sessions subscriptionId=\(subscriptionId)", level: .debug)
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            logBlock("← START SESSION RESPONSE", [
-                "Status  : HTTP \(status)",
-                "Error   : \(error?.localizedDescription ?? "nil")",
-                "Body    : \(text)"
-            ])
+            AppPushService.log("SessionAPI: POST /v1/sessions HTTP \(status) response=\(text)", level: .debug)
             Task { @MainActor in
                 completion(data, response, error)
             }
@@ -128,18 +100,18 @@ enum AppsOnAirSessionAPI {
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
         guard !sessionId.isEmpty else {
-            print("[AppsOnAirSessionAPI] empty sessionId — end session not sent")
+            AppPushService.log("SessionAPI: empty sessionId — end session not sent", level: .warn)
             completion(nil, nil, nil)
             return
         }
         guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
-            print("[AppsOnAirSessionAPI] no subscriptionId — end session not sent")
+            AppPushService.log("SessionAPI: no subscriptionId — end session not sent", level: .debug)
             completion(nil, nil, nil)
             return
         }
         let endpoint = EnvironmentConfig.sessionById + sessionId
         guard let url = URL(string: endpoint) else {
-            print("[AppsOnAirSessionAPI] invalid endpoint URL '\(endpoint)'")
+            AppPushService.log("SessionAPI: invalid endpoint URL '\(endpoint)'", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -154,7 +126,7 @@ enum AppsOnAirSessionAPI {
             "ended_at":        endedAtEpochSeconds
         ]
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
-            print("[AppsOnAirSessionAPI] failed to serialize body")
+            AppPushService.log("SessionAPI: failed to serialize end session body", level: .error)
             completion(nil, nil, nil)
             return
         }
@@ -168,21 +140,15 @@ enum AppsOnAirSessionAPI {
         request.setValue("ios",                           forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
-        logBlock("→ END SESSION REQUEST", [
-            "URL     : PATCH \(url.absoluteString)",
-            "Headers : X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios",
-            "Body    : \(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")",
-            "EndedAt : \(endedAtEpochSeconds) (epoch seconds) — \(Date(timeIntervalSince1970: TimeInterval(endedAtEpochSeconds)))"
-        ])
+        AppPushService.log(
+            "SessionAPI: PATCH /v1/sessions/\(sessionId) endedAt=\(endedAtEpochSeconds)",
+            level: .debug
+        )
 
         URLSession.shared.dataTask(with: request) { data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            logBlock("← END SESSION RESPONSE", [
-                "Status  : HTTP \(status)",
-                "Error   : \(error?.localizedDescription ?? "nil")",
-                "Body    : \(text)"
-            ])
+            AppPushService.log("SessionAPI: PATCH /v1/sessions/\(sessionId) HTTP \(status) response=\(text)", level: .debug)
             Task { @MainActor in
                 completion(data, response, error)
             }

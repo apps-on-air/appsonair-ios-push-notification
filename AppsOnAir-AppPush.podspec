@@ -3,7 +3,7 @@ Pod::Spec.new do |s|
   # Source of truth for the runtime SDK version — AppsOnAirDeviceInfo.sdkVersion
   # reads this back via SdkManager (org.cocoapods.AppsOnAir-AppPush). Keep
   # AppsOnAirDeviceInfo.fallbackSDKVersion in sync for the SPM-as-source case.
-  s.version          = '1.0.1-beta'
+  s.version          = '1.0.2-beta'
   s.summary          = 'AppsOnAir Push Notifications SDK for iOS'
   s.description      = <<-DESC
     Lightweight iOS push notification SDK using APNs directly. No Firebase dependency.
@@ -23,33 +23,29 @@ Pod::Spec.new do |s|
   # `pod 'AppsOnAir-AppPush'` installs only this subspec by default.
   s.default_subspecs = 'Core'
 
-  # ── Shared — Foundation-only code used by both Core and ServiceExtension ──────
-  # Contains EnvironmentConfig (API base URLs) and AppsOnAirStorageKeys (App Group
-  # key constants). Must be Foundation-only — UIKit is unavailable in NSE process.
-  # Not listed in default_subspecs; pulled in transitively via Core/ServiceExtension.
-  s.subspec 'Shared' do |shared|
-    shared.source_files = 'Sources/AppsOnAirPushShared/**/*.swift'
-    shared.frameworks   = 'Foundation'
-  end
-
   # ── Core — link to your main app target ───────────────────────────────────────
+  # AppsOnAirPushShared sources (EnvironmentConfig, AppsOnAirStorageKeys) are
+  # compiled directly into this target. Under CocoaPods, shared sources are
+  # included via source_files glob — no separate subspec needed. Under SPM,
+  # sharing is handled by the AppsOnAir-AppPush-Shared target dependency.
   s.subspec 'Core' do |core|
-    core.source_files = 'Sources/AppsOnAirPush/**/*.swift'
+    core.source_files = 'Sources/AppsOnAirPush/**/*.swift',
+                        'Sources/AppsOnAirPushShared/**/*.swift'
     core.frameworks   = 'UIKit', 'UserNotifications', 'Security', 'BackgroundTasks'
     # Shared device/app metadata + app-id resolution used by AppsOnAirDeviceInfo.
-    core.dependency 'AppsOnAir-Core', '>= 1.2.3'
-    # EnvironmentConfig + AppsOnAirStorageKeys live in the Shared subspec.
-    core.dependency 'AppsOnAir-AppPush/Shared'
+    # ~> 1.2 allows >= 1.2.0, < 2.0 — mirrors the SPM `from: "1.2.3"` (upToNextMajor) rule
+    # so CocoaPods and SPM resolve Core to the same compatible range.
+    core.dependency 'AppsOnAir-Core', '~> 1.2.3'
   end
 
   # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
   # UIKit is unavailable inside a Notification Service Extension.
+  # AppsOnAirPushShared sources included directly — same reason as Core above.
   # Usage: pod 'AppsOnAir-AppPush/ServiceExtension'
   s.subspec 'ServiceExtension' do |ext|
-    ext.source_files = 'Sources/AppsOnAirPushServiceExt/**/*.swift'
+    ext.source_files = 'Sources/AppsOnAirPushServiceExt/**/*.swift',
+                       'Sources/AppsOnAirPushShared/**/*.swift'
     ext.frameworks   = 'Foundation', 'UserNotifications'
-    # EnvironmentConfig + AppsOnAirStorageKeys live in the Shared subspec.
-    ext.dependency 'AppsOnAir-AppPush/Shared'
   end
 
   # ── ContentExtension — link to your Notification Content Extension target ONLY ─

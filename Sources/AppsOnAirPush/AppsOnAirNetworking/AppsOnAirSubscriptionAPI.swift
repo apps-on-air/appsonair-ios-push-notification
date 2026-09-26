@@ -994,7 +994,8 @@ enum AppsOnAirSubscriptionAPI {
             "timezone":         meta.timezone,
             "country":          meta.regionCode,                        // ISO region, e.g. "IN"
             "language":         AppPushService.shared.language,
-            "is_jailbroken":    AppsOnAirDeviceInfo.isJailbroken
+            "is_jailbroken":           AppsOnAirDeviceInfo.isJailbroken,
+            "is_registration_required": AppPushService.shared.storage.isRegistrationRequired
         ]
     }
 

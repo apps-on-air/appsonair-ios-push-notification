@@ -40,6 +40,7 @@ Pods/
 # ── Claude Code ───────────────────────────────────────────────────────────────
 .claude/
 
-# ─────────────────────────────────
+# ── Internal team docs (not for SDK consumers) ────────────────────────────────
 IOS_SDK-INTERNALS.md
 validate_spm.sh
+release_notes.md
