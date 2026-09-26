@@ -85,35 +85,27 @@ https://github.com/apps-on-air/appsonair-ios-push-notification
 
 Set the version rule to **Up to Next Minor Version** from `1.0.2-beta` — this accepts patch releases (`1.0.2-beta`, `1.0.2`, …) automatically without any change on your side, and blocks minor bumps (`1.1+`) that may carry breaking changes. Then link the right product to each target:
 
-| Product | Add to |
-|---|---|
-| `AppsOnAir-AppPush` | Main app target |
-| `AppsOnAir-AppPush-ServiceExt` | Notification Service Extension target **only** |
-| `AppsOnAir-AppPush-ContentExt` | Notification Content Extension target **only** |
+| Product | Add to | SPM | CocoaPods |
+|---|---|---|---|
+| Main app SDK | Main app target | `AppsOnAir-AppPush` | `AppsOnAir-AppPush` |
+| Notification Service Extension | NSE target **only** | `AppsOnAir-AppPush-ServiceExt` | **SPM only** — see warning above |
+| Notification Content Extension | CE target **only** | `AppsOnAir-AppPush-ContentExt` | **SPM only** — see warning above |
 
 ### CocoaPods
 
-Use the **standalone pods** for the NSE and CE targets — they produce uniquely named frameworks and avoid the Xcode 15+ "Multiple targets match implicit dependency" linker warning that the subspecs trigger.
+> [!WARNING]
+> **CocoaPods is winding down active development.** Swift Package Manager (SPM) is the recommended integration method — zero warnings, explicit product linking, and fully supported by Apple.
+>
+> **NSE and CE targets must use SPM, not CocoaPods.** All subspecs compile into the same `AppsOnAir_AppPush` framework. If you add the `ServiceExtension` or `ContentExtension` subspec via CocoaPods, Xcode archive fails with _"Multiple commands produce AppsOnAir_AppPush.framework"_ — blocking App Store submission. This is a known CocoaPods limitation with no fix in a single-podspec setup. Use SPM for NSE and CE targets.
 
 ```ruby
 # '>= 1.0.2-beta', '< 1.1' — accepts patch releases automatically; blocks minor bumps.
+# CocoaPods: main app target only.
+# Add NSE and CE targets via SPM (see warning above).
 target 'MyApp' do
   pod 'AppsOnAir-AppPush', '>= 1.0.2-beta', '< 1.1'
 end
-
-target 'MyNotificationServiceExtension' do
-  pod 'AppsOnAir-AppPush-ServiceExt', '>= 1.0.2-beta', '< 1.1'
-end
-
-target 'MyNotificationContentExtension' do
-  pod 'AppsOnAir-AppPush-ContentExt', '>= 1.0.2-beta', '< 1.1'
-end
 ```
-
-> **CocoaPods import names** — Each pod produces its own uniquely named module. Use the correct import per target:
-> - Main app: `import AppsOnAir_AppPush`
-> - NSE target: `import AppsOnAir_AppPush_ServiceExt`
-> - CE target: `import AppsOnAir_AppPush_ContentExt`
 
 ---
 
@@ -849,9 +841,10 @@ Add the **same App Group** capability to the NSE target (Signing & Capabilities 
 >
 > The **CE App ID does not need the App Group** — the Content Extension only renders UI and does not access shared storage.
 
-**3. Link `AppsOnAir-AppPush-ServiceExt` to the NSE target only**
+**3. Link the SDK to the NSE target only**
 
-Link to your NSE target only — never add it to the main app target.
+SPM: add `AppsOnAir-AppPush-ServiceExt` to the NSE target only — never to the main app target.
+CocoaPods: use the `ServiceExtension` subspec scoped to the NSE target only — never add it to the main app target.
 
 **4. Add `mutable-content: 1` to every push payload**
 
@@ -868,7 +861,10 @@ Without this iOS never invokes the NSE.
 ### Swift — subclass
 
 ```swift
+// SPM:
 import AppsOnAir_AppPush_ServiceExt
+// CocoaPods:
+// import AppsOnAir_AppPush
 
 class NotificationService: AppsOnAirNotificationServiceExtension {
     // No code required — media download, text overrides, badge, delivery receipt are automatic.
@@ -884,7 +880,10 @@ class NotificationService: AppsOnAirNotificationServiceExtension {
 ### Swift — free functions (if you already have your own NSE subclass)
 
 ```swift
+// SPM:
 import AppsOnAir_AppPush_ServiceExt
+// CocoaPods:
+// import AppsOnAir_AppPush
 
 class NotificationService: UNNotificationServiceExtension {
 
@@ -914,7 +913,9 @@ class NotificationService: UNNotificationServiceExtension {
 
 // NotificationService.m
 #import "NotificationService.h"
-@import AppsOnAir_AppPush_ServiceExt;
+// SPM: @import AppsOnAir_AppPush_ServiceExt;
+// CocoaPods:
+@import AppsOnAir_AppPush;
 
 @interface NotificationService ()
 @property (nonatomic, strong) UNNotificationRequest            *receivedRequest;
@@ -973,8 +974,9 @@ File → New Target → Notification Content Extension.
 
 **2. Link the SDK to the CE target only**
 
-SPM: add `AppsOnAir-AppPush-ContentExt` to the CE target only.
-CocoaPods:
+SPM: add `AppsOnAir-AppPush-ContentExt` to the CE target only — never to the main app target.
+CocoaPods: use the `ContentExtension` subspec scoped to the CE target only.
+
 ```ruby
 target 'MyNotificationContentExtension' do
   pod 'AppsOnAir-AppPush/ContentExtension', '>= 1.0.2-beta', '< 1.1'
@@ -1021,7 +1023,10 @@ Right-click `MainInterface.storyboard` in the Xcode project navigator → Delete
 **5. Subclass `AppsOnAirContentViewController`**
 
 ```swift
+// SPM:
 import AppsOnAir_AppPush_ContentExt
+// CocoaPods:
+// import AppsOnAir_AppPush
 
 class NotificationViewController: AppsOnAirContentViewController {
     // No code required — image, title, and body are rendered automatically.
@@ -1110,7 +1115,9 @@ Delete `MainInterface.storyboard`. Set Info.plist to use `NSExtensionPrincipalCl
 
 ```objc
 // NotificationViewController.h
-@import AppsOnAir_AppPush_ContentExt;
+// SPM: @import AppsOnAir_AppPush_ContentExt;
+// CocoaPods:
+@import AppsOnAir_AppPush;
 
 @interface NotificationViewController : AOAContentViewController
 @end

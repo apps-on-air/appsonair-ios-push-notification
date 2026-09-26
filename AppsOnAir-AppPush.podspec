@@ -41,9 +41,6 @@ Pod::Spec.new do |s|
   # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
   # UIKit is unavailable inside a Notification Service Extension.
   # AppsOnAirPushShared sources included directly — same reason as Core above.
-  # Prefer the standalone pod 'AppsOnAir-AppPush-ServiceExt' over this subspec —
-  # the standalone pod produces a uniquely-named framework and avoids the Xcode 15+
-  # "Multiple targets match implicit dependency" warning.
   # Usage: pod 'AppsOnAir-AppPush/ServiceExtension'
   s.subspec 'ServiceExtension' do |ext|
     ext.source_files = 'Sources/AppsOnAirPushServiceExt/**/*.swift',
@@ -52,8 +49,6 @@ Pod::Spec.new do |s|
   end
 
   # ── ContentExtension — link to your Notification Content Extension target ONLY ─
-  # Prefer the standalone pod 'AppsOnAir-AppPush-ContentExt' over this subspec —
-  # same reason as ServiceExtension above.
   # Usage: pod 'AppsOnAir-AppPush/ContentExtension'
   s.subspec 'ContentExtension' do |content|
     content.source_files = 'Sources/AppsOnAirPushContentExt/**/*.swift'
