@@ -72,6 +72,12 @@ enum AppsOnAirNetworkMonitor {
                 // foreground or session start.
                 AppsOnAirEventQueue.shared.flush()
 
+                // If APNs registration was attempted at launch but failed because there
+                // was no network (iOS silently drops the registration request and does
+                // not reliably retry), re-assert it now so the token arrives as soon
+                // as connectivity is restored — unblocking subscription registration.
+                AppPushService.retryAPNsRegistrationIfNeeded()
+
                 guard !pending.isEmpty else { return }
                 let actions = pending
                 pending.removeAll()

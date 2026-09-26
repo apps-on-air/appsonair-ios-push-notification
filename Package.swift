@@ -81,7 +81,8 @@ let package = Package(
         // ── Tests ────────────────────────────────────────────────────────────────
         .testTarget(
             name: "AppsOnAir-AppPush-Tests",
-            dependencies: ["AppsOnAir-AppPush"]
+            dependencies: ["AppsOnAir-AppPush"],
+            path: "Tests/AppsOnAir-AppPush-Tests"
         )
     ]
 )

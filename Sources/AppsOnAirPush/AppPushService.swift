@@ -133,6 +133,15 @@ public final class AppPushService: NSObject {
         debug: Bool = false,
         swizzle: Bool = true
     ) {
+        // Guard against double-initialization — calling initialize() more than once
+        // would register duplicate NotificationCenter observers (session lifecycle,
+        // permission cache refresh, badge auto-clear) causing every foreground/background
+        // event to fire handlers multiple times.
+        guard !shared.isConfigured else {
+            log("initialize() called more than once — ignored. Call it exactly once at app launch.", level: .warn)
+            return
+        }
+
         // AppsOnAir_Core reads the app ID from Info.plist ("AppsonairAppId" /
         // "AppsOnAirAPIKey") and starts network-reachability monitoring.
         // DEBUG builds trap here (exit(-1)) when the key is missing.
@@ -390,19 +399,19 @@ public final class AppPushService: NSObject {
     internal static func registerSubscriptionIfReady(reason: AppsOnAirSyncReason) {
         guard shared.isConfigured else { return }
         guard !shared.didRegisterSubscription else {
-            print("[AppPushService] subscription already registered this launch — skip (\(reason))")
+            log("subscription already registered this launch — skip (\(reason))", level: .debug)
             return
         }
         guard !shared.subscriptionRequestInFlight else {
-            print("[AppPushService] subscription request already in flight — skip (\(reason))")
+            log("subscription request already in flight — skip (\(reason))", level: .debug)
             return
         }
         guard let token = shared.storage.getApnsToken(), !token.isEmpty else {
-            print("[AppPushService] no push token yet — subscription deferred (\(reason))")
+            log("no push token yet — subscription deferred (\(reason))", level: .info)
             return
         }
 
-        print("[AppPushService] subscription ready to register (\(reason)) — waiting for connectivity")
+        log("subscription ready to register (\(reason)) — waiting for connectivity", level: .debug)
         AppsOnAirNetworkMonitor.runWhenConnected {
             // State may have changed while queued for connectivity.
             guard !shared.didRegisterSubscription, !shared.subscriptionRequestInFlight else { return }
@@ -412,21 +421,21 @@ public final class AppPushService: NSObject {
             // killed/crashed while backgrounded (its End Session PATCH never
             // landed). Close it before registering and opening a new session.
             AppsOnAirSessionManager.shared.endStaleSessionIfNeeded {
-                print("[AppPushService] POST /v1/subscriptions (\(reason))")
+                log("POST /v1/subscriptions (\(reason))", level: .debug)
 
                 AppsOnAirSubscriptionAPI.registerDevice { data, response, error in
                     shared.subscriptionRequestInFlight = false
                     let status = (response as? HTTPURLResponse)?.statusCode ?? -1
 
                     if let error {
-                        print("[AppPushService] /v1/subscriptions error (\(reason)): \(error.localizedDescription)")
+                        log("/v1/subscriptions error (\(reason)): \(error.localizedDescription)", level: .error)
                         return
                     }
                     let bodyText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                    print("[AppPushService] /v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)")
+                    log("/v1/subscriptions HTTP \(status) (\(reason)): \(bodyText)", level: .debug)
 
                     guard (200..<300).contains(status) else {
-                        print("[AppPushService] /v1/subscriptions non-2xx — not marking registered")
+                        log("/v1/subscriptions non-2xx — not marking registered", level: .error)
                         return
                     }
 
@@ -436,14 +445,14 @@ public final class AppPushService: NSObject {
 
                     guard let data,
                           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                        print("[AppPushService] /v1/subscriptions 2xx but response body was not JSON")
+                        log("/v1/subscriptions 2xx but response body was not JSON", level: .warn)
                         return
                     }
                     let sid = (json["subscriptionId"] as? String)
                         ?? (json["subscription_id"] as? String)
                         ?? ((json["data"] as? [String: Any])?["subscriptionId"] as? String)
                     if let sid, !sid.isEmpty {
-                        print("[AppPushService] /v1/subscriptions subscriptionId=\(sid)")
+                        log("/v1/subscriptions subscriptionId=\(sid)", level: .info)
                         setSubscriptionId(sid)              // persists + mirrors to App Group
                         firePushSubscriptionChange()
                         // Now that a subscriptionId exists, pull the backend's tag and
@@ -458,7 +467,7 @@ public final class AppPushService: NSObject {
                         if !shared.pendingSubscriptionActions.isEmpty {
                             let queued = shared.pendingSubscriptionActions
                             shared.pendingSubscriptionActions.removeAll()
-                            print("[AppPushService] flushing \(queued.count) queued subscription sync call(s)")
+                            log("flushing \(queued.count) queued subscription sync call(s)", level: .debug)
                             queued.forEach { $0() }
                         }
 
@@ -468,7 +477,7 @@ public final class AppPushService: NSObject {
                             AppsOnAirSessionManager.shared.adopt(sessionId: sessionId)
                         }
                     } else {
-                        print("[AppPushService] /v1/subscriptions 2xx but no subscriptionId in response")
+                        log("/v1/subscriptions 2xx but no subscriptionId in response", level: .warn)
                     }
                 }
             }
@@ -1498,8 +1507,22 @@ public final class AppPushService: NSObject {
         return nil
     }
 
+    /// Called by `AppsOnAirNetworkMonitor` on every reconnect.
+    /// If `registerForRemoteNotifications()` was called at launch but the device had no
+    /// network at the time, iOS silently drops the request and does not reliably retry.
+    /// Re-asserting it here ensures the APNs token arrives as soon as connectivity is
+    /// restored — which in turn unblocks subscription registration.
+    internal static func retryAPNsRegistrationIfNeeded() {
+        #if !targetEnvironment(simulator)
+        guard shared.isConfigured,
+              shared.storage.getApnsToken() == nil else { return }
+        log("NetworkMonitor: no APNs token yet — re-asserting registerForRemoteNotifications()", level: .debug)
+        UIApplication.shared.registerForRemoteNotifications()
+        #endif
+    }
+
     // Internal so PushAppDelegateSwizzler can log through the same channel
-    internal static func log(_ message: String, level: LogLevel = .debug) {
+    internal nonisolated static func log(_ message: String, level: LogLevel = .debug) {
         guard level <= AppPushService.Debug.logLevel else { return }
         print("[AppPushService] [\(level)] \(message)")
     }

@@ -137,6 +137,23 @@ public final class AOAPushUser: NSObject {
         AppPushService.User.removeAliases(labels)
     }
 
+    /// Returns a copy of all locally cached aliases (synchronous).
+    @objc @MainActor
+    public static func getAliases() -> [String: String] {
+        AppPushService.User.getAliases()
+    }
+
+    /// Fetch aliases from the backend and deliver the refreshed result to `completion`
+    /// on the main thread. Use this when you need the server-authoritative alias set.
+    @objc
+    public static func fetchAliasesFromBackend(completion: @escaping @Sendable ([String: String]) -> Void) {
+        Task { @MainActor in
+            AppPushService.User.getAliases { @MainActor aliases in
+                completion(aliases)
+            }
+        }
+    }
+
     // MARK: - Email
 
     /// Associate an email address with this user.

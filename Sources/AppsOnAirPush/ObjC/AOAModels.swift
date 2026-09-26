@@ -40,6 +40,8 @@ public final class AOAPushNotification: NSObject {
     @objc public let campaignId: String?
     @objc public let templateId: String?
     @objc public let sentAt: String?
+    /// Identifies this specific dispatch of the notification. Required by open/click/delivery event APIs.
+    @objc public let sendId: String?
     @objc public let title: String?
     @objc public let subtitle: String?
     @objc public let body: String?
@@ -60,6 +62,7 @@ public final class AOAPushNotification: NSObject {
         self.campaignId    = swift.campaignId
         self.templateId    = swift.templateId
         self.sentAt        = swift.sentAt
+        self.sendId        = swift.sendId
         self.title         = swift.title
         self.subtitle      = swift.subtitle
         self.body          = swift.body
