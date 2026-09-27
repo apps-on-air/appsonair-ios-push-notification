@@ -1436,6 +1436,7 @@ Most issues are a missing capability, wrong Info.plist key, or wrong call order.
 |---|---|---|
 | No APNs token | Push Notifications capability missing | Signing & Capabilities → + → Push Notifications |
 | NSE not invoked | `mutable-content: 1` absent from payload | Add it to every push |
+| NSE not invoked | NSE deployment target higher than device iOS version | iOS silently refuses to launch any extension whose minimum OS version exceeds the device OS — no crash, no log, the extension is never invoked. In Xcode: NSE target → Build Settings → **iOS Deployment Target** → set to `15.0` (or match your main app's minimum) |
 | NSE not invoked | App Group missing or mismatched | Add same group to main app AND NSE via Signing & Capabilities; then manually add `AppsOnAirAppGroup` to both Info.plists (Xcode does not do this automatically) |
 | APNs token / permission not showing | `AppsOnAirAppGroup` missing from main app Info.plist | Adding App Group in Signing & Capabilities only updates `.entitlements` — you must also add `AppsOnAirAppGroup` to Info.plist manually |
 | No Delivered analytics | Same as NSE not invoked | Check above |
