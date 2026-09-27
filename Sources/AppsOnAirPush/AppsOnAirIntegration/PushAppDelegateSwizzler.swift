@@ -169,7 +169,19 @@ final class PushAppDelegateSwizzler {
     //   "v@:@@?"  — void, self, sel, + 2 object args + block  (silent push selector)
     private static func install(imp newIMP: IMP, selector: Selector, in cls: AnyClass, typeEncoding: String, original: inout IMP?) {
         if class_addMethod(cls, selector, newIMP, typeEncoding) {
-            original = nil
+            // Method added to this class (wasn't defined directly on it).
+            // Preserve the superclass IMP so framework base classes like
+            // FlutterAppDelegate stay in the chain — without this, cross-platform
+            // frameworks that implement the method on a superclass would be
+            // silently skipped (original = nil breaks their chain).
+            // For plain native apps the superclass won't have the method either,
+            // so original stays nil and behaviour is identical to before.
+            if let superCls = cls.superclass(),
+               let method = class_getInstanceMethod(superCls, selector) {
+                original = method_getImplementation(method)
+            } else {
+                original = nil
+            }
         } else if let method = class_getInstanceMethod(cls, selector) {
             original = method_setImplementation(method, newIMP)
         }

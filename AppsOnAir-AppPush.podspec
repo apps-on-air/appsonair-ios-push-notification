@@ -3,14 +3,15 @@ Pod::Spec.new do |s|
   # Source of truth for the runtime SDK version — AppsOnAirDeviceInfo.sdkVersion
   # reads this back via SdkManager (org.cocoapods.AppsOnAir-AppPush). Keep
   # AppsOnAirDeviceInfo.fallbackSDKVersion in sync for the SPM-as-source case.
-  s.version          = '1.0.2-beta'
+  s.version          = '1.0.3-beta'
   s.summary          = 'AppsOnAir Push Notifications SDK for iOS'
   s.description      = <<-DESC
     Lightweight iOS push notification SDK using APNs directly. No Firebase dependency.
     Includes a Notification Service Extension base class for rich media attachments
     and a Notification Content Extension base view controller for custom UI.
   DESC
-  s.homepage         = 'https://documentation.appsonair.com/MobileQuickstart/AppPushService/ios-sdk-setup'
+  s.homepage         = 'https://documentation.appsonair.com/MobileQuickstart/PushNotification/ios-sdk-setup'
+  s.readme           = "https://github.com/apps-on-air/appsonair-ios-push-notification/blob/main/README.md"
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
   s.author           = { 'devtools-logicwind' => 'devtools@logicwind.com' }
 
