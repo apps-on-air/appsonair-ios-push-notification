@@ -1,0 +1,39 @@
+platform :ios, '15.0'
+
+# =============================================================================
+# AppsOnAir Push SDK — CocoaPods Integration
+# =============================================================================
+#
+# BEFORE running `pod install`:
+#   1. In Xcode open ExampleApp.xcodeproj
+#   2. File → Packages → Remove "appsonair-ios-push-notification" remote package
+#   3. Run: pod install
+#   4. Open ExampleApp.xcworkspace (NOT .xcodeproj) from now on
+#
+# IMPORTANT — NSE and NCE targets MUST use SPM, not CocoaPods.
+# Adding ServiceExtension or ContentExtension via CocoaPods causes an archive
+# error ("Multiple commands produce AppsOnAir_AppPush.framework").
+# After pod install, add NSE and NCE products via:
+#   File → Add Package Dependencies → https://github.com/apps-on-air/appsonair-ios-push-notification
+#   → Up to Next Minor from 1.0.3-beta
+#   → AppsOnAir-AppPush-ServiceExt  → add to AppsonairNotificationServiceExtension target only
+#   → AppsOnAir-AppPush-ContentExt  → add to AppsonairNotificationContentExtension target only
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Remote SDK (use after 1.0.3-beta is published)
+# -----------------------------------------------------------------------------
+target 'ExampleApp' do
+  use_frameworks!
+  pod 'AppsOnAir-AppPush', '1.0.3-beta'
+end
+
+# -----------------------------------------------------------------------------
+# Local SDK (use before publishing — for SDK development/testing only)
+# Comment the remote block above and uncomment this block instead.
+# -----------------------------------------------------------------------------
+# target 'ExampleApp' do
+#   use_frameworks!
+#   pod 'AppsOnAir-AppPush', :path => '../'
+# end

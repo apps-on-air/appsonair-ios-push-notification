@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <!-- Must exactly match the "category" value in your push payload's aps object -->
+            <key>UNNotificationExtensionCategory</key>
+            <string>aoa_rich</string>
+            <key>UNNotificationExtensionInitialContentSizeRatio</key>
+            <real>1</real>
+        </dict>
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).NotificationViewController</string>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.usernotifications.content-extension</string>
+    </dict>
+</dict>
+</plist>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Step 1: Replace with your App ID from the AppsOnAir dashboard -->
+    <key>AppsonairAppId</key>
+    <string>YOUR_APP_ID</string>
+
+    <!-- Step 2: Replace with your App Group ID (must match Signing & Capabilities and NSE Info.plist) -->
+    <key>AppsOnAirAppGroup</key>
+    <string>group.com.your-company.example-app.appsonair</string>
+
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.appsonair.push.background-sync</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>remote-notification</string>
+        <string>fetch</string>
+    </array>
+    <key>aps-environment</key>
+    <string>development</string>
+    <key>CFBundleDisplayName</key>
+    <string>AOA Push Example</string>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+</dict>
+</plist>

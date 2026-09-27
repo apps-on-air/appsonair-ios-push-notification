@@ -10,8 +10,15 @@ Icon?
 # ── Xcode ────────────────────────────────────────────────────────────────────
 *.xcodeproj/
 *.xcworkspace/
+# Allow the Example Xcode project
+!Example/ExampleApp.xcodeproj/
+!Example/ExampleApp.xcodeproj/project.pbxproj
+!Example/ExampleApp.xcodeproj/xcshareddata/
+!Example/ExampleApp.xcodeproj/xcshareddata/xcschemes/
+!Example/ExampleApp.xcodeproj/xcshareddata/xcschemes/*.xcscheme
 xcuserdata/
 *.xcscheme
+!Example/ExampleApp.xcodeproj/xcshareddata/xcschemes/*.xcscheme
 *.xcbkptlist
 *.xccheckout
 *.moved-aside

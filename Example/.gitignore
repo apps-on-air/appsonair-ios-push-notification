@@ -1,0 +1,15 @@
+# Xcode user-specific files
+xcuserdata/
+*.xcuserstate
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# Build products
+build/
+DerivedData/
+
+# Package.resolved is intentionally excluded — Xcode regenerates it on first open
+# after the remote package (1.0.3-beta) is published and tagged.
+ExampleApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
