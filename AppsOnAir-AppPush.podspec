@@ -36,7 +36,7 @@ Pod::Spec.new do |s|
     # Shared device/app metadata + app-id resolution used by AppsOnAirDeviceInfo.
     # ~> 1.2 allows >= 1.2.0, < 2.0 — mirrors the SPM `from: "1.2.3"` (upToNextMajor) rule
     # so CocoaPods and SPM resolve Core to the same compatible range.
-    core.dependency 'AppsOnAir-Core', '~> 1.2.3'
+    core.dependency 'AppsOnAir-Core', '>= 1.2.3'
   end
 
   # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
