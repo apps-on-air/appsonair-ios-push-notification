@@ -37,6 +37,7 @@ Pod::Spec.new do |s|
     # ~> 1.2 allows >= 1.2.0, < 2.0 — mirrors the SPM `from: "1.2.3"` (upToNextMajor) rule
     # so CocoaPods and SPM resolve Core to the same compatible range.
     core.dependency 'AppsOnAir-Core', '>= 1.2.3'
+    core.pod_target_xcconfig = { 'LM_SKIP_METADATA_EXTRACTION' => 'YES' }
   end
 
   # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
@@ -47,6 +48,7 @@ Pod::Spec.new do |s|
     ext.source_files = 'Sources/AppsOnAirPushServiceExt/**/*.swift',
                        'Sources/AppsOnAirPushShared/**/*.swift'
     ext.frameworks   = 'Foundation', 'UserNotifications'
+    ext.pod_target_xcconfig = { 'LM_SKIP_METADATA_EXTRACTION' => 'YES' }
   end
 
   # ── ContentExtension — link to your Notification Content Extension target ONLY ─
@@ -54,5 +56,6 @@ Pod::Spec.new do |s|
   s.subspec 'ContentExtension' do |content|
     content.source_files = 'Sources/AppsOnAirPushContentExt/**/*.swift'
     content.frameworks   = 'UIKit', 'UserNotifications', 'UserNotificationsUI'
+    content.pod_target_xcconfig = { 'LM_SKIP_METADATA_EXTRACTION' => 'YES' }
   end
 end
