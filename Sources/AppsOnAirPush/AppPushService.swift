@@ -784,26 +784,23 @@ public final class AppPushService: NSObject {
         }
     }
 
-    /// PATCH /v1/subscriptions/<id> with the current email list so the backend
+    /// PATCH /v1/subscriptions/<id> with `{ "email": <String|null> }` so the backend
     /// subscription reflects the most recent `User.addEmail()` / `User.removeEmail()`
-    /// call.
+    /// call. Mirrors Android: pass the address to set it, nil to clear it.
     ///
     /// Same deferral as `syncTagsIfReady()`: the request is handed to
     /// `AppsOnAirNetworkMonitor.runWhenConnected` and only leaves the device once
     /// AppsOnAir_Core reports connectivity. No-ops before `initialize()`. While
     /// there is no `subscriptionId` yet, the call is queued and runs once
-    /// `registerSubscriptionIfReady` assigns one. `shared.emails` is re-read inside
-    /// the connectivity closure so a rapid sequence of `addEmail`/`removeEmail`
-    /// only sends the final list.
-    internal static func syncEmailIfReady(reason: AppsOnAirSyncReason) {
+    /// `registerSubscriptionIfReady` assigns one.
+    internal static func syncEmailIfReady(email: String?, reason: AppsOnAirSyncReason) {
         runOnceSubscriptionReady(reason: reason) {
             guard let sid = subscriptionId, !sid.isEmpty else { return }
             print("[AppPushService] email sync ready (\(reason)) — waiting for connectivity")
             AppsOnAirNetworkMonitor.runWhenConnected {
-                let emails = shared.emails
-                print("[AppPushService] PATCH /v1/subscriptions/\(sid) emails=\(emails) (\(reason))")
+                print("[AppPushService] PATCH /v1/subscriptions/\(sid) email=\(email ?? "null") (\(reason))")
 
-                AppsOnAirSubscriptionAPI.updateEmail(emails) { data, response, error in
+                AppsOnAirSubscriptionAPI.updateEmail(email) { data, response, error in
                     let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                     if let error {
                         print("[AppPushService] email PATCH error (\(reason)): \(error.localizedDescription)")
@@ -1053,14 +1050,16 @@ public final class AppPushService: NSObject {
     }
 
     /// Unlink this device from the identified user. Reverts to anonymous state.
-    /// Call on user sign-out. Tags, aliases, and externalId are cleared locally.
+    /// Call on user sign-out. Tags, aliases, email, and externalId are cleared locally.
     public static func logout() {
         shared.externalId = nil
         shared.tags = [:]
         shared.aliases = [:]
+        shared.emails = []
         UserDefaults.standard.removeObject(forKey: "com.appsonair.push.externalId")
         UserDefaults.standard.removeObject(forKey: "com.appsonair.push.tags")
         UserDefaults.standard.removeObject(forKey: "com.appsonair.push.aliases")
+        UserDefaults.standard.removeObject(forKey: "com.appsonair.push.emails")
         log("User logged out. Reverted to anonymous.", level: .debug)
         let state = UserChangedState(current: UserState(externalId: nil, appsOnAirId: deviceId))
         shared.userStateObservers.forEach { $0.onUserStateDidChange(state: state) }

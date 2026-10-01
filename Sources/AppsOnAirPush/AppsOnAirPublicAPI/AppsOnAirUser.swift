@@ -221,30 +221,33 @@ extension AppPushService {
         // MARK: - Email
 
         /// Associate an email address with this user for multi-channel messaging.
+        /// The backend keeps one email per subscription — calling this again replaces the previous address.
         public static func addEmail(_ address: String) {
-            guard !address.isEmpty, !AppPushService.shared.emails.contains(address) else { return }
-            AppPushService.shared.emails.append(address)
+            guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            AppPushService.shared.emails = [address]
             persistEmails()
-            AppPushService.log("Email added: \(address)", level: .debug)
-            // Sync the updated email list to the backend subscription —
-            // PATCH /v1/subscriptions/<id> { "emails": [...] }, gated on connectivity.
-            AppPushService.syncEmailIfReady(reason: .emailUpdated)
+            AppPushService.log("Email set: \(address)", level: .debug)
+            // PATCH /v1/subscriptions/<id> { "email": <address> }, gated on connectivity.
+            AppPushService.syncEmailIfReady(email: address, reason: .emailUpdated)
         }
 
-        /// The email addresses currently associated with this user.
+        /// The email address currently associated with this user, or nil if none.
         /// Synchronous — reads the local cache.
         public static func getEmails() -> [String] {
             AppPushService.shared.emails
         }
 
         /// Remove an email address association.
+        /// Always syncs { "email": null } to the backend so the email is cleared
+        /// even if the local cache doesn't have it (e.g. added in a previous session).
+        /// Mirrors Android: PushSubscriptionService.updateEmail(null) → patchField("email", null).
         public static func removeEmail(_ address: String) {
             AppPushService.shared.emails.removeAll { $0 == address }
             persistEmails()
             AppPushService.log("Email removed: \(address)", level: .debug)
-            // Sync the updated email list to the backend subscription —
-            // PATCH /v1/subscriptions/<id> { "emails": [...] }, gated on connectivity.
-            AppPushService.syncEmailIfReady(reason: .emailUpdated)
+            // PATCH /v1/subscriptions/<id> { "email": null }, gated on connectivity.
+            // Matches Android's JSONObject.NULL — backend clears the email on null.
+            AppPushService.syncEmailIfReady(email: nil, reason: .emailUpdated)
         }
 
         // MARK: - SMS (AOA:Future — not covered in push SDK scope, will be added in a future release)

@@ -300,6 +300,7 @@ public struct UserChangedState {
 
 // MARK: - Listener / Observer protocols
 
+@MainActor
 public protocol NotificationLifecycleListener: AnyObject {
     func onWillDisplay(event: NotificationWillDisplayEvent)
 }

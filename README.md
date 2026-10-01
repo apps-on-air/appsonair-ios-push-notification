@@ -417,7 +417,7 @@ NSDictionary *aliases = [AOAPushUser getAliases];
 
 ### Email
 
-Associate an email address with this user record. Multiple addresses can be added and removed independently.
+Associate an email address with this user record. The backend keeps one email per subscription — calling `addEmail` again replaces the previous address.
 
 ```swift
 // Swift

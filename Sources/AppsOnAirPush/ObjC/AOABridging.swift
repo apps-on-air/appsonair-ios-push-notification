@@ -73,6 +73,7 @@ final class AOAPermissionObserverBridge: NotificationPermissionObserver {
 // MARK: - AOALifecycleListenerBridge
 
 /// Bridges AOANotificationLifecycleListener (ObjC) → NotificationLifecycleListener (Swift).
+@MainActor
 final class AOALifecycleListenerBridge: NotificationLifecycleListener {
     nonisolated(unsafe) weak var objcListener: (any AOANotificationLifecycleListener)?
 
