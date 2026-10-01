@@ -41,10 +41,11 @@ import AppsOnAir_AppPush_Shared
 //     { "external_id": <String> }   // JSON null clears it (logout)
 //
 //   PATCH <EnvironmentConfig.subscriptionById><subscriptionId>   (…/v1/subscriptions/<id>)
-//   Sent on User.addEmail() / User.removeEmail() to sync the current email list.
+//   Sent on User.addEmail() / User.removeEmail() to set or clear the email address.
 //   Headers: same four as POST
-//   Body (exact backend contract — see curl sample):
-//     { "emails": [ <String>, … ] }   // full current list; empty array clears all
+//   Body (exact backend contract — mirrors Android SDK):
+//     { "email": <String> }   // set
+//     { "email": null }       // clear (removeEmail)
 //
 //   POST <EnvironmentConfig.subscriptionById><subscriptionId>/alias   (…/v1/subscriptions/<id>/alias)
 //   Sent on User.addAlias() / User.addAliases() to sync this subscription's alias map.
@@ -639,15 +640,15 @@ enum AppsOnAirSubscriptionAPI {
         }.resume()
     }
 
-    /// Send PATCH /v1/subscriptions/<subscriptionId> with the current email list and
+    /// Send PATCH /v1/subscriptions/<subscriptionId> to set or clear the email address and
     /// return the raw result on the main actor.
     ///
     /// Mirrors `updateExternalId` — this ONLY builds and sends the request. The body
-    /// is exactly `{ "emails": <emails> }` (backend contract). An empty array clears
-    /// all emails from the subscription. When the request cannot be built (no
+    /// is exactly `{ "email": <String|null> }` (backend contract). Passing `nil` clears
+    /// the email from the subscription. When the request cannot be built (no
     /// `subscriptionId`, bad URL, encode failure) the completion is called with all-nil.
     static func updateEmail(
-        _ emails: [String],
+        _ email: String?,
         completion: @escaping @MainActor (Data?, URLResponse?, Error?) -> Void
     ) {
         guard let subscriptionId = AppPushService.subscriptionId, !subscriptionId.isEmpty else {
@@ -662,7 +663,8 @@ enum AppsOnAirSubscriptionAPI {
             return
         }
 
-        let body: [String: Any] = ["emails": emails]
+        let emailValue: Any = email ?? NSNull()
+        let body: [String: Any] = ["email": emailValue]
         guard let httpBody = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else {
             print("[AppsOnAirSubscriptionAPI] failed to serialize body")
             completion(nil, nil, nil)
@@ -678,7 +680,7 @@ enum AppsOnAirSubscriptionAPI {
         request.setValue("ios",                          forHTTPHeaderField: "X-Platform")
         request.httpBody = httpBody
 
-        print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString) (emails)")
+        print("[AppsOnAirSubscriptionAPI] → PATCH \(url.absoluteString) (email)")
         print("[AppsOnAirSubscriptionAPI]   X-App-Id=\(AppPushService.shared._appId) X-SDK-Version=\(AppsOnAirDeviceInfo.sdkVersion) X-Platform=ios")
         print("[AppsOnAirSubscriptionAPI]   body=\(String(data: httpBody, encoding: .utf8) ?? "<non-utf8>")")
 
