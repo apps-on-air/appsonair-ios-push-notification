@@ -1489,11 +1489,34 @@ public final class AppPushService: NSObject {
         fetchCompletionHandler completion: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         log("Silent push received. payload=\(userInfo)", level: .debug)
+        enqueueSilentPushDelivered(userInfo)
         if let handler = onSilentPushReceived {
             handler(userInfo, completion)
         } else {
             completion(.noData)
         }
+    }
+
+    /// Reports a silent AppsOnAir push as delivered — mirrors Android, where silent pushes
+    /// count toward delivery analytics. A silent push never reaches `handleWillPresent` or
+    /// the Notification Service Extension, the only other places delivery is recorded.
+    /// Recorded before the host's handler runs, so a handler that never returns can't lose it.
+    private static func enqueueSilentPushDelivered(_ userInfo: [AnyHashable: Any]) {
+        guard let notificationId = userInfo["notification_id"] as? String, !notificationId.isEmpty else {
+            return  // not an AppsOnAir push
+        }
+        // A push that also shows an alert is counted by handleWillPresent (foreground) or the
+        // NSE (background) — skip it here so it isn't counted twice.
+        if let aps = userInfo["aps"] as? [String: Any], aps["alert"] != nil {
+            return
+        }
+        AppsOnAirEventQueue.shared.enqueue(PushEvent(
+            type: .delivered,
+            notificationId: notificationId,
+            subscriptionId: subscriptionId,
+            sendId: (userInfo["send_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        ))
+        AppsOnAirEventQueue.shared.flush()
     }
 
     // MARK: - Permission change detection
