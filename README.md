@@ -80,8 +80,8 @@ The SDK ships three products. Link the right one to each target — **never add 
 | Product | Link to | SPM name | CocoaPods |
 |---|---|---|---|
 | Main app SDK | Main app target | `AppsOnAir-AppPush` | `AppsOnAir-AppPush` |
-| Notification Service Extension | NSE target only | `AppsOnAir-AppPush-ServiceExt` | SPM only — see CocoaPods note below |
-| Notification Content Extension | CE target only | `AppsOnAir-AppPush-ContentExt` | SPM only — see CocoaPods note below |
+| Notification Service Extension | NSE target only | `AppsOnAir-AppPush-ServiceExt` | `AppsOnAir-AppPush-ServiceExt` (1.0.6-beta+) |
+| Notification Content Extension | CE target only | `AppsOnAir-AppPush-ContentExt` | `AppsOnAir-AppPush-ContentExt` (1.0.6-beta+) |
 
 ### Swift Package Manager
 
@@ -98,16 +98,24 @@ Set the version rule to **Up to Next Minor Version** from `1.0.2-beta` — this 
 > [!WARNING]
 > **CocoaPods is winding down active development.** Swift Package Manager (SPM) is the recommended integration method — zero warnings, explicit product linking, and fully supported by Apple.
 >
-> **NSE and CE targets must use SPM, not CocoaPods.** All subspecs compile into the same `AppsOnAir_AppPush` framework. Adding the `ServiceExtension` or `ContentExtension` subspec via CocoaPods causes Xcode archive to fail with _"Multiple commands produce AppsOnAir_AppPush.framework"_ — blocking App Store submission. This is a known CocoaPods limitation with no fix in a single-podspec setup.
+> **NSE and CE targets: use the `AppsOnAir-AppPush-ServiceExt` / `AppsOnAir-AppPush-ContentExt` pods (1.0.6-beta+).** Their modules (`AppsOnAir_AppPush_ServiceExt` / `AppsOnAir_AppPush_ContentExt`) match the SPM products, so extension code is the same with either package manager.
 >
-> **You can mix CocoaPods and SPM in the same project.** Add `AppsOnAir-AppPush` via CocoaPods for your main app, then add the SDK repo via **File → Add Package Dependencies** in Xcode and link `AppsOnAir-AppPush-ServiceExt` / `AppsOnAir-AppPush-ContentExt` to your NSE/CE targets only.
+> The older `AppsOnAir-AppPush/ServiceExtension` and `AppsOnAir-AppPush/ContentExtension` subspecs are **deprecated**. A subspec shares the main pod's module name, so it builds a second `AppsOnAir_AppPush.framework`: with `use_frameworks!` (common in React Native and Flutter apps) archive fails with _"Multiple commands produce …/AppsOnAir_AppPush.framework"_, and the app can crash at launch because the extension's framework is embedded in its place. To migrate, switch the pod and change `import AppsOnAir_AppPush` to `import AppsOnAir_AppPush_ServiceExt` (NSE) / `import AppsOnAir_AppPush_ContentExt` (CE).
+>
+> Mixing CocoaPods (main app) with SPM (extensions) also keeps working.
 
 ```ruby
-# '>= 1.0.2-beta', '< 1.1' — accepts patch releases automatically; blocks minor bumps.
-# CocoaPods: main app target only.
-# Add NSE and CE targets via SPM (see warning above).
+# '>= 1.0.6-beta', '< 1.1' — accepts patch releases automatically; blocks minor bumps.
 target 'MyApp' do
-  pod 'AppsOnAir-AppPush', '>= 1.0.2-beta', '< 1.1'
+  pod 'AppsOnAir-AppPush', '>= 1.0.6-beta', '< 1.1'
+end
+
+target 'MyNotificationServiceExtension' do
+  pod 'AppsOnAir-AppPush-ServiceExt', '>= 1.0.6-beta', '< 1.1'
+end
+
+target 'MyNotificationContentExtension' do
+  pod 'AppsOnAir-AppPush-ContentExt', '>= 1.0.6-beta', '< 1.1'
 end
 ```
 
@@ -848,7 +856,7 @@ Add the **same App Group** capability to the NSE target (Signing & Capabilities 
 **3. Link the SDK to the NSE target only**
 
 SPM: add `AppsOnAir-AppPush-ServiceExt` to the NSE target only — never to the main app target.
-CocoaPods: NSE must use SPM — adding the `ServiceExtension` subspec via CocoaPods causes an archive error (see [Installation → CocoaPods](#cocoapods)).
+CocoaPods: add `pod 'AppsOnAir-AppPush-ServiceExt'` to the NSE target only and `import AppsOnAir_AppPush_ServiceExt` — not the deprecated `ServiceExtension` subspec (see [Installation → CocoaPods](#cocoapods)).
 
 **4. Add `mutable-content: 1` to every push payload**
 
@@ -971,7 +979,7 @@ File → New Target → Notification Content Extension.
 **2. Link the SDK to the CE target only**
 
 SPM: add `AppsOnAir-AppPush-ContentExt` to the CE target only — never to the main app target.
-CocoaPods: CE must use SPM — adding the `ContentExtension` subspec via CocoaPods causes an archive error (see [Installation → CocoaPods](#cocoapods)).
+CocoaPods: add `pod 'AppsOnAir-AppPush-ContentExt'` to the CE target only and `import AppsOnAir_AppPush_ContentExt` — not the deprecated `ContentExtension` subspec (see [Installation → CocoaPods](#cocoapods)).
 
 **3. Update Info.plist**
 
