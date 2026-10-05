@@ -275,7 +275,7 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D740C322302B3B7800EC3287 /* Products */;
 			packageReferences = (
-				AABB0001AABB0001AABB0001 /* XCRemoteSwiftPackageReference "appsonair-ios-push-notification" */,
+				AABB0001AABB0001AABB0001 /* XCLocalSwiftPackageReference ".." */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -758,31 +758,27 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		AABB0001AABB0001AABB0001 /* XCRemoteSwiftPackageReference "appsonair-ios-push-notification" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apps-on-air/appsonair-ios-push-notification";
-			requirement = {
-				kind = upToNextMinorVersion;
-				minimumVersion = "1.0.3-beta";
-			};
+/* Begin XCLocalSwiftPackageReference section */
+		AABB0001AABB0001AABB0001 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ..;
 		};
-/* End XCRemoteSwiftPackageReference section */
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		AABB0002AABB0002AABB0002 /* AppsOnAir-AppPush-ServiceExt */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AABB0001AABB0001AABB0001 /* XCRemoteSwiftPackageReference "appsonair-ios-push-notification" */;
+			package = AABB0001AABB0001AABB0001 /* XCLocalSwiftPackageReference ".." */;
 			productName = "AppsOnAir-AppPush-ServiceExt";
 		};
 		AABB0003AABB0003AABB0003 /* AppsOnAir-AppPush-ContentExt */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AABB0001AABB0001AABB0001 /* XCRemoteSwiftPackageReference "appsonair-ios-push-notification" */;
+			package = AABB0001AABB0001AABB0001 /* XCLocalSwiftPackageReference ".." */;
 			productName = "AppsOnAir-AppPush-ContentExt";
 		};
 		AABB0006AABB0006AABB0006 /* AppsOnAir-AppPush */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AABB0001AABB0001AABB0001 /* XCRemoteSwiftPackageReference "appsonair-ios-push-notification" */;
+			package = AABB0001AABB0001AABB0001 /* XCLocalSwiftPackageReference ".." */;
 			productName = "AppsOnAir-AppPush";
 		};
 /* End XCSwiftPackageProductDependency section */
