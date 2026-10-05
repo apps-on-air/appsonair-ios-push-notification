@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 #if SWIFT_PACKAGE
 import AppsOnAir_AppPush_Shared
 #endif
@@ -72,8 +73,16 @@ final class AppsOnAirEventQueue {
         isFlushing = true
         AppPushService.log("EventQueue: flushing \(queue.count) pending event(s).", level: .info)
 
+        // Keep the app running until the requests finish. A flush often starts while the
+        // app is in the background — a silent push or a notification tap — and iOS would
+        // otherwise suspend it mid-request, holding the event back until the next launch.
+        let backgroundTask = beginBackgroundTask()
+
         Task { @MainActor in
-            defer { self.isFlushing = false }
+            defer {
+                self.isFlushing = false
+                self.endBackgroundTask(backgroundTask)
+            }
             var remaining = queue
 
             for event in queue {
@@ -95,6 +104,24 @@ final class AppsOnAirEventQueue {
             }
             self.save(remaining)
         }
+    }
+
+    // MARK: - Background execution
+
+    private func beginBackgroundTask() -> UIBackgroundTaskIdentifier {
+        var task = UIBackgroundTaskIdentifier.invalid
+        task = UIApplication.shared.beginBackgroundTask(withName: "AppsOnAirEventQueue.flush") {
+            // Out of background time: the unsent events stay queued for the next flush.
+            AppPushService.log("EventQueue: background time expired during flush.", level: .warn)
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
+        return task
+    }
+
+    private func endBackgroundTask(_ task: UIBackgroundTaskIdentifier) {
+        guard task != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(task)
     }
 
     // MARK: - Notification Service Extension bridge
