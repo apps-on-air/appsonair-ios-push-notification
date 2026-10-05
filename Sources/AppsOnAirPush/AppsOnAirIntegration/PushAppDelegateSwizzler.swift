@@ -37,6 +37,11 @@ final class PushAppDelegateSwizzler {
             center.delegate = d
         }
 
+        // When another component owns (or later takes) the notification delegate —
+        // Notifee, a cross-platform plugin, the host AppDelegate — make sure AppsOnAir
+        // pushes still reach the SDK without the host forwarding them manually.
+        PushNotificationCenterSwizzler.install(on: center)
+
         // ObjC swizzles are deferred to the next run-loop turn so that
         // UIApplication.shared.delegate is guaranteed to be set (needed by
         // resolveAppDelegateClass) by the time we read it.

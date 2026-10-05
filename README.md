@@ -757,7 +757,9 @@ These iOS settings must be active on the test device or silent push will never b
 
 ## Swizzling
 
-Swizzling is **on by default** — the SDK hooks APNs token and notification delegate methods automatically. If you initialize with `swizzle: false` you need to forward the callbacks yourself.
+Swizzling is **on by default** — the SDK hooks APNs token and notification delegate methods automatically, so the AppDelegate needs no push code. This also holds in React Native and Flutter apps, and when another component owns `UNUserNotificationCenter.current().delegate` (for example Notifee, a Flutter plugin, or your own AppDelegate): the SDK hooks that delegate so AppsOnAir pushes still reach it, and the delegate's own code keeps running. Forwarding the callbacks by hand as well is harmless — each notification is processed once.
+
+If you initialize with `swizzle: false` you need to forward the callbacks yourself.
 
 ```swift
 // Swift — swizzle: false

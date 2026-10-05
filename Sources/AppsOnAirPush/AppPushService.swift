@@ -51,6 +51,16 @@ public final class AppPushService: NSObject {
     /// reported, so a misconfigured app does not emit it on every cold launch.
     internal var didReportEntitlementError = false
 
+    /// Notifications already processed by `handleWillPresent` / `handleDidReceive` this
+    /// process, keyed by `deliveryKey(for:)`. One delivery can reach the SDK twice: once
+    /// through the SDK's hook on a host-owned notification delegate (Notifee, a Flutter
+    /// plugin, the AppDelegate) and again when that delegate forwards it manually. The
+    /// second call is a no-op so events and callbacks fire exactly once.
+    internal var presentedNotifications: [String: UNNotificationPresentationOptions] = [:]
+    internal var handledResponses: Set<String> = []
+    /// Insertion order for the two caches above, so they stay bounded.
+    internal var handledDeliveryOrder: [String] = []
+
     /// Set true after the backend has accepted this device's subscription
     /// (`POST /v1/subscriptions` → 2xx). The SDK registers exactly once per
     /// launch: the trigger is `initialize()` + an available push token.
@@ -1283,6 +1293,18 @@ public final class AppPushService: NSObject {
     }
 
     public static func handleWillPresent(notification: UNNotification) -> UNNotificationPresentationOptions {
+        let key = deliveryKey(for: notification)
+        if let options = shared.presentedNotifications[key] {
+            log("Notification already handled (foreground) — skipping duplicate. id=\(notification.request.identifier)", level: .debug)
+            return options
+        }
+        let options = presentNotification(notification)
+        shared.presentedNotifications[key] = options
+        rememberHandledDelivery(key)
+        return options
+    }
+
+    private static func presentNotification(_ notification: UNNotification) -> UNNotificationPresentationOptions {
         let push = PushNotification.from(notification.request.content)
         log("Notification received (foreground). payload=\(notification.request.content)", level: .debug)
         registerActionCategoryIfNeeded(for: notification.request.content)
@@ -1391,6 +1413,13 @@ public final class AppPushService: NSObject {
     }
 
     public static func handleDidReceive(response: UNNotificationResponse) {
+        let key = deliveryKey(for: response.notification) + "|" + response.actionIdentifier
+        guard shared.handledResponses.insert(key).inserted else {
+            log("Notification response already handled — skipping duplicate. id=\(response.notification.request.identifier)", level: .debug)
+            return
+        }
+        rememberHandledDelivery(key)
+
         let push = PushNotification.from(response.notification.request.content)
         // UNNotificationDefaultActionIdentifier means body tap (not a custom action button)
         let actionId: String? = response.actionIdentifier == UNNotificationDefaultActionIdentifier
@@ -1432,6 +1461,21 @@ public final class AppPushService: NSObject {
             " sendId=\(push.sendId ?? "nil")",
             level: .info
         )
+    }
+
+    /// Identifies one delivery of a notification. The delivery date is part of the key
+    /// because apps can reuse a request identifier (e.g. a daily local reminder), and
+    /// each new delivery must still be processed.
+    private static func deliveryKey(for notification: UNNotification) -> String {
+        "\(notification.request.identifier)|\(notification.date.timeIntervalSinceReferenceDate)"
+    }
+
+    private static func rememberHandledDelivery(_ key: String) {
+        shared.handledDeliveryOrder.append(key)
+        guard shared.handledDeliveryOrder.count > 64 else { return }
+        let evicted = shared.handledDeliveryOrder.removeFirst()
+        shared.presentedNotifications.removeValue(forKey: evicted)
+        shared.handledResponses.remove(evicted)
     }
 
     // MARK: - Silent Push
