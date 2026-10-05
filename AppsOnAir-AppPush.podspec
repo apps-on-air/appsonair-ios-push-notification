@@ -3,7 +3,7 @@ Pod::Spec.new do |s|
   # Source of truth for the runtime SDK version — AppsOnAirDeviceInfo.sdkVersion
   # reads this back via SdkManager (org.cocoapods.AppsOnAir-AppPush). Keep
   # AppsOnAirDeviceInfo.fallbackSDKVersion in sync for the SPM-as-source case.
-  s.version          = '1.0.5-beta'
+  s.version          = '1.0.6-beta'
   s.summary          = 'AppsOnAir Push Notifications SDK for iOS'
   s.description      = <<-DESC
     Lightweight iOS push notification SDK using APNs directly. No Firebase dependency.
@@ -40,7 +40,12 @@ Pod::Spec.new do |s|
     core.pod_target_xcconfig = { 'LM_SKIP_METADATA_EXTRACTION' => 'YES' }
   end
 
-  # ── ServiceExtension — link to your Notification Service Extension target ONLY ─
+  # ── ServiceExtension — DEPRECATED, use pod 'AppsOnAir-AppPush-ServiceExt' ─────
+  # Kept so existing Podfiles still resolve. A subspec shares the root's module name,
+  # so this builds a second AppsOnAir_AppPush.framework next to Core's: with
+  # use_frameworks! that fails archive ("Multiple commands produce …") and embeds the
+  # wrong framework in the app. The AppsOnAir-AppPush-ServiceExt pod has its own
+  # module (AppsOnAir_AppPush_ServiceExt, as with SPM) and has neither problem.
   # UIKit is unavailable inside a Notification Service Extension.
   # AppsOnAirPushShared sources included directly — same reason as Core above.
   # Usage: pod 'AppsOnAir-AppPush/ServiceExtension'
@@ -51,7 +56,8 @@ Pod::Spec.new do |s|
     ext.pod_target_xcconfig = { 'LM_SKIP_METADATA_EXTRACTION' => 'YES' }
   end
 
-  # ── ContentExtension — link to your Notification Content Extension target ONLY ─
+  # ── ContentExtension — DEPRECATED, use pod 'AppsOnAir-AppPush-ContentExt' ─────
+  # Kept so existing Podfiles still resolve; same module-name clash as ServiceExtension.
   # Usage: pod 'AppsOnAir-AppPush/ContentExtension'
   s.subspec 'ContentExtension' do |content|
     content.source_files = 'Sources/AppsOnAirPushContentExt/**/*.swift'

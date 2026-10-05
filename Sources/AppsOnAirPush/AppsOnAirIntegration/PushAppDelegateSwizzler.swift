@@ -37,10 +37,22 @@ final class PushAppDelegateSwizzler {
             center.delegate = d
         }
 
-        // ObjC swizzles are deferred to the next run-loop turn so that
-        // UIApplication.shared.delegate is guaranteed to be set (needed by
-        // resolveAppDelegateClass) by the time we read it.
-        Task { @MainActor in safeSwizzle() }
+        // When another component owns (or later takes) the notification delegate —
+        // Notifee, a cross-platform plugin, the host AppDelegate — make sure AppsOnAir
+        // pushes still reach the SDK without the host forwarding them manually.
+        PushNotificationCenterSwizzler.install(on: center)
+
+        // The ObjC swizzles need UIApplication.shared.delegate (see resolveAppDelegateClass).
+        // It is already set when initialize() runs from didFinishLaunching, from a
+        // didFinishLaunching observer (React Native) or from a plugin (Flutter), so swizzle
+        // right away — no run-loop turn in which an APNs callback could arrive unhooked.
+        // Only when initialize() runs before the delegate exists (e.g. a SwiftUI App's
+        // init) is the swizzle deferred to the next run-loop turn.
+        if UIApplication.shared.delegate != nil {
+            safeSwizzle()
+        } else {
+            Task { @MainActor in safeSwizzle() }
+        }
     }
 
     // All ObjC runtime calls are here. If anything fails the SDK logs and moves on.

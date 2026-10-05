@@ -10,14 +10,14 @@ platform :ios, '15.0'
 #   3. Run: pod install
 #   4. Open ExampleApp.xcworkspace (NOT .xcodeproj) from now on
 #
-# IMPORTANT — NSE and NCE targets MUST use SPM, not CocoaPods.
-# Adding ServiceExtension or ContentExtension via CocoaPods causes an archive
-# error ("Multiple commands produce AppsOnAir_AppPush.framework").
-# After pod install, add NSE and NCE products via:
+# NSE and NCE targets: use the AppsOnAir-AppPush-ServiceExt / AppsOnAir-AppPush-ContentExt
+# pods (1.0.6-beta+) — see the commented targets below — or keep the SPM products:
 #   File → Add Package Dependencies → https://github.com/apps-on-air/appsonair-ios-push-notification
-#   → Up to Next Minor from 1.0.3-beta
 #   → AppsOnAir-AppPush-ServiceExt  → add to AppsonairNotificationServiceExtension target only
 #   → AppsOnAir-AppPush-ContentExt  → add to AppsonairNotificationContentExtension target only
+# Do NOT use the deprecated AppsOnAir-AppPush/ServiceExtension or /ContentExtension
+# subspecs: they build a second AppsOnAir_AppPush.framework, which fails archive
+# ("Multiple commands produce AppsOnAir_AppPush.framework").
 #
 # =============================================================================
 
@@ -36,4 +36,14 @@ end
 # target 'ExampleApp' do
 #   use_frameworks!
 #   pod 'AppsOnAir-AppPush', :path => '../'
+# end
+#
+# target 'AppsonairNotificationServiceExtension' do
+#   use_frameworks!
+#   pod 'AppsOnAir-AppPush-ServiceExt', :path => '../'
+# end
+#
+# target 'AppsonairNotificationContentExtension' do
+#   use_frameworks!
+#   pod 'AppsOnAir-AppPush-ContentExt', :path => '../'
 # end
