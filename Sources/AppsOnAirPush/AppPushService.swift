@@ -152,6 +152,16 @@ public final class AppPushService: NSObject {
             return
         }
 
+        // Launch-time logging without code: Info.plist "AppsOnAirLogLevel". Applied before
+        // anything else here, so the APNs and registration steps that follow are logged too.
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "AppsOnAirLogLevel") as? String {
+            if let level = LogLevel(name: raw) {
+                AppPushService.Debug.logLevel = level
+            } else {
+                log("Info.plist AppsOnAirLogLevel \"\(raw)\" is not one of none, fatal, error, warn, info, debug, verbose — ignored.", level: .warn)
+            }
+        }
+
         // AppsOnAir_Core reads the app ID from Info.plist ("AppsonairAppId" /
         // "AppsOnAirAPIKey") and starts network-reachability monitoring.
         // DEBUG builds trap here (exit(-1)) when the key is missing.
@@ -161,8 +171,8 @@ public final class AppPushService: NSObject {
             log("initialize() failed — add an 'AppsonairAppId' String entry to your app's Info.plist.", level: .error)
             return
         }
-        // Legacy debug flag — sets logLevel to .debug if true and not already configured
-        if debug && AppPushService.Debug.logLevel == .none {
+        // Legacy debug flag — raises logLevel to .debug, never lowers a more verbose setting
+        if debug && AppPushService.Debug.logLevel < .debug {
             AppPushService.Debug.logLevel = .debug
         }
         shared._appId = appId

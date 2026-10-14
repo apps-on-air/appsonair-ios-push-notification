@@ -240,6 +240,20 @@ public struct PushError: Error, Sendable {
 public enum LogLevel: Int, Comparable {
     case none = 0, fatal, error, warn, info, debug, verbose
     public static func < (lhs: LogLevel, rhs: LogLevel) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    /// Parses a level name ("warn", "Debug", …) as used by the AppsOnAirLogLevel Info.plist key.
+    init?(name: String) {
+        switch name.lowercased() {
+        case "none":    self = .none
+        case "fatal":   self = .fatal
+        case "error":   self = .error
+        case "warn":    self = .warn
+        case "info":    self = .info
+        case "debug":   self = .debug
+        case "verbose": self = .verbose
+        default:        return nil
+        }
+    }
 }
 
 // MARK: - NotificationWillDisplayEvent
