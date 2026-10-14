@@ -14,6 +14,9 @@ public final class AppPushService: NSObject {
     public static let shared = AppPushService()
 
     internal var isConfigured = false
+    /// Pending "no APNs callback" report; see registerForRemoteNotificationsWithWatchdog().
+    private var apnsWatchdog: DispatchWorkItem?
+    private var didReportMissingAPNsCallback = false
     internal let storage = PushStorage()
     /// Shared AppsOnAir_Core handle. Owns app-id resolution (from Info.plist) and
     /// network-reachability monitoring; also the source for AppsOnAirDeviceInfo.
@@ -261,7 +264,7 @@ public final class AppPushService: NSObject {
             firePushSubscriptionChange()
             shared.listener?.onAPNsTokenUpdated(token: mockToken, environment: .sandbox)
             #else
-            UIApplication.shared.registerForRemoteNotifications()
+            registerForRemoteNotificationsWithWatchdog()
             #endif
         } else {
             log("autoRegisterForRemoteNotifications disabled — token acquired only after requestPermission().", level: .debug)
@@ -1030,7 +1033,7 @@ public final class AppPushService: NSObject {
                     #else
                     // Token was already requested at launch; re-assert so a fresh
                     // token callback fires if that first registration failed.
-                    UIApplication.shared.registerForRemoteNotifications()
+                    registerForRemoteNotificationsWithWatchdog()
                     #endif
                     // Permission just flipped on — notify local subscription observers.
                     // (No backend call here: the device subscription is registered
@@ -1243,6 +1246,7 @@ public final class AppPushService: NSObject {
     // Called automatically by swizzler, or manually if swizzle: false.
 
     public static func handleAPNsToken(_ deviceToken: Data) {
+        cancelAPNsWatchdog()
         guard !deviceToken.isEmpty else {
             emitError(code: .apnsRegistrationFailed, message: "Received empty APNs token. Try re-running the app.")
             return
@@ -1287,6 +1291,7 @@ public final class AppPushService: NSObject {
     }
 
     public static func handleAPNsRegistrationError(_ error: Error) {
+        cancelAPNsWatchdog()
         let nsError = error as NSError
         let reason: String
         switch nsError.code {
@@ -1593,8 +1598,45 @@ public final class AppPushService: NSObject {
         guard shared.isConfigured,
               shared.storage.getApnsToken() == nil else { return }
         log("NetworkMonitor: no APNs token yet — re-asserting registerForRemoteNotifications()", level: .debug)
-        UIApplication.shared.registerForRemoteNotifications()
+        registerForRemoteNotificationsWithWatchdog()
         #endif
+    }
+
+    // MARK: - APNs callback watchdog
+
+    /// How long to wait for either APNs callback before reporting that none arrived.
+    private static let apnsCallbackTimeout: TimeInterval = 15
+
+    /// Registers with APNs and starts (or restarts) a watchdog. iOS normally answers within
+    /// a second or two. When neither callback reaches the SDK, nothing else would ever
+    /// report it: no token, no error, and the device silently never registers.
+    private static func registerForRemoteNotificationsWithWatchdog() {
+        UIApplication.shared.registerForRemoteNotifications()
+
+        shared.apnsWatchdog?.cancel()
+        let watchdog = DispatchWorkItem {
+            MainActor.assumeIsolated {
+                shared.apnsWatchdog = nil
+                // Once per launch: reconnects re-assert registration and would repeat it.
+                guard !shared.didReportMissingAPNsCallback else { return }
+                shared.didReportMissingAPNsCallback = true
+                emitError(
+                    code: .apnsCallbackNotReceived,
+                    message: "No APNs callback received \(Int(apnsCallbackTimeout)) s after registerForRemoteNotifications(). " +
+                        "Another library may be proxying the AppDelegate (e.g. Firebase), or the device has no network. " +
+                        "If it persists, forward application(_:didRegisterForRemoteNotificationsWithDeviceToken:) " +
+                        "to AppPushService.handleAPNsToken(_:)."
+                )
+            }
+        }
+        shared.apnsWatchdog = watchdog
+        DispatchQueue.main.asyncAfter(deadline: .now() + apnsCallbackTimeout, execute: watchdog)
+    }
+
+    /// Either APNs callback arrived, so the watchdog has nothing to report.
+    private static func cancelAPNsWatchdog() {
+        shared.apnsWatchdog?.cancel()
+        shared.apnsWatchdog = nil
     }
 
     // Internal so PushAppDelegateSwizzler can log through the same channel

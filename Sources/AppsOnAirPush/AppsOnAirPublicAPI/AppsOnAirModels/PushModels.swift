@@ -229,6 +229,9 @@ public struct PushError: Error, Sendable {
         case notInitialized
         case permissionDenied
         case apnsRegistrationFailed
+        /// Neither APNs callback arrived after registerForRemoteNotifications(): usually another
+        /// library proxies the AppDelegate, or the device had no network.
+        case apnsCallbackNotReceived
         case unknown
     }
     public let code: Code
