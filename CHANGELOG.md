@@ -1,3 +1,8 @@
+## 1.0.7-beta
+- Default log level is now `.warn`, so errors and warnings always reach the console. Set it without code via the Info.plist key `AppsOnAirLogLevel`.
+- New `apnsCallbackNotReceived` error when no APNs callback arrives after registering (e.g. another library proxies the AppDelegate).
+- APNs tokens and AppsOnAir silent pushes now reach the SDK in apps using Firebase Auth or other AppDelegate proxies.
+
 ## 1.0.6-beta
 - New `AppsOnAir-AppPush-ServiceExt` and `AppsOnAir-AppPush-ContentExt` pods for the notification extensions (modules match the SPM products). Fixes "Multiple commands produce AppsOnAir_AppPush.framework" on archive with `use_frameworks!`. The `ServiceExtension` / `ContentExtension` subspecs are deprecated.
 - With swizzling on, AppsOnAir pushes now reach the SDK when another component owns the notification delegate (e.g. Notifee in React Native, a Flutter plugin, the host AppDelegate). No AppDelegate push code is needed.
