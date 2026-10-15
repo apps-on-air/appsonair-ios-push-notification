@@ -720,6 +720,8 @@ AppPushService.onSilentPushReceived = { userInfo, completion in
 }
 ```
 
+A silent AppsOnAir push (one carrying `notification_id`) is reported as **delivered** automatically, before `onSilentPushReceived` runs — no extra code. Pass each silent push to the SDK only once: with `swizzle: true` (or a cross-platform plugin such as the Flutter plugin) the SDK already receives it, so don't also call `handleSilentPush` from your own `didReceiveRemoteNotification`, or the push is counted twice.
+
 ### Required APNs headers for silent push
 
 Silent push requires specific APNs HTTP/2 headers. Using alert push headers with a silent payload (or vice versa) causes APNs to return 200 OK but iOS silently drops the notification.

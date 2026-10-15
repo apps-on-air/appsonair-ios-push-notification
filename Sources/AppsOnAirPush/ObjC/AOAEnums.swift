@@ -98,6 +98,7 @@ public enum AOAPushErrorCode: Int {
     case permissionDenied      = 1
     case apnsRegistrationFailed = 2
     case unknown               = 3
+    case apnsCallbackNotReceived = 4
 }
 
 extension PushError {
@@ -108,6 +109,7 @@ extension PushError {
         case .notInitialized:        code = .notInitialized
         case .permissionDenied:      code = .permissionDenied
         case .apnsRegistrationFailed: code = .apnsRegistrationFailed
+        case .apnsCallbackNotReceived: code = .apnsCallbackNotReceived
         case .unknown:               code = .unknown
         }
         return NSError(
