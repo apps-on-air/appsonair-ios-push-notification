@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name             = 'AppsOnAir-AppPush-ContentExt'
   # Released together with AppsOnAir-AppPush — keep the same version.
-  s.version          = '1.0.7-beta'
+  s.version          = '1.0.8-beta'
   s.summary          = 'AppsOnAir Push Notification Content Extension for iOS'
   s.description      = <<-DESC
     Base view controller for your Notification Content Extension: renders the
