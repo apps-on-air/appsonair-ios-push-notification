@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name             = 'AppsOnAir-AppPush-ServiceExt'
   # Released together with AppsOnAir-AppPush — keep the same version.
-  s.version          = '1.0.7-beta'
+  s.version          = '1.0.8-beta'
   s.summary          = 'AppsOnAir Push Notification Service Extension for iOS'
   s.description      = <<-DESC
     Base class for your Notification Service Extension: rich media download,

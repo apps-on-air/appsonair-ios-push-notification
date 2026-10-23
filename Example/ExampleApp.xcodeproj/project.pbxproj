@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		36D099223073AADC00E7ECDD /* pop.wav in Resources */ = {isa = PBXBuildFile; fileRef = 36D099213073AADC00E7ECDD /* pop.wav */; };
+		36D099243073AADC00E7ECDD /* pop.wav in Resources */ = {isa = PBXBuildFile; fileRef = 36D099213073AADC00E7ECDD /* pop.wav */; };
 		AABB0004AABB0004AABB0004 /* AppsOnAir-AppPush-ServiceExt in Frameworks */ = {isa = PBXBuildFile; productRef = AABB0002AABB0002AABB0002 /* AppsOnAir-AppPush-ServiceExt */; };
 		AABB0005AABB0005AABB0005 /* AppsOnAir-AppPush-ContentExt in Frameworks */ = {isa = PBXBuildFile; productRef = AABB0003AABB0003AABB0003 /* AppsOnAir-AppPush-ContentExt */; };
 		AABB0007AABB0007AABB0007 /* AppsOnAir-AppPush in Frameworks */ = {isa = PBXBuildFile; productRef = AABB0006AABB0006AABB0006 /* AppsOnAir-AppPush */; };
@@ -49,6 +51,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		36D099213073AADC00E7ECDD /* pop.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = pop.wav; sourceTree = "<group>"; };
 		D740C321302B3B7800EC3287 /* ExampleApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ExampleApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D75CBC66304ADCE5006207AD /* AppsonairNotificationServiceExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AppsonairNotificationServiceExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D7D41C1D30640C2C00CF0034 /* AppsonairNotificationContentExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AppsonairNotificationContentExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -149,6 +152,7 @@
 		D740C318302B3B7800EC3287 = {
 			isa = PBXGroup;
 			children = (
+				36D099213073AADC00E7ECDD /* pop.wav */,
 				D740C323302B3B7800EC3287 /* ExampleApp */,
 				D75CBC67304ADCE5006207AD /* AppsonairNotificationServiceExtension */,
 				D7D41C2230640C2C00CF0034 /* AppsonairNotificationContentExtension */,
@@ -292,6 +296,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				36D099243073AADC00E7ECDD /* pop.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -306,6 +311,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				36D099223073AADC00E7ECDD /* pop.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

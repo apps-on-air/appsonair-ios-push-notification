@@ -69,10 +69,12 @@ import AppsOnAir_AppPush_Shared
 //  | title             | String                     | Overrides the banner title (backend sends it pre-translated).    |
 //  | body              | String                     | Overrides the banner body (backend sends it pre-translated).     |
 //  | subtitle          | String                     | Overrides the banner subtitle.                                   |
-//  | sound             | String                     | Sound to play: "default" or a .caf/.aiff filename bundled in the |
-//  |                   |                            | app. Overrides aps.sound. Also re-applied from aps.sound when    |
-//  |                   |                            | this key is absent (iOS drops it from the mutable copy on some   |
-//  |                   |                            | versions). Omit both to play no sound.                           |
+//  | sound             | String                     | Sound to play: "default" or a .caf/.wav/.aiff file bundled in the|
+//  |                   |                            | app. The extension may be omitted, as on Android ("pop" plays    |
+//  |                   |                            | pop.wav); not found → default sound. Overrides aps.sound. Also   |
+//  |                   |                            | re-applied from aps.sound when this key is absent (iOS drops it  |
+//  |                   |                            | from the mutable copy on some versions). Omit both to play no    |
+//  |                   |                            | sound.                                                           |
 //  | image_url         | String (https)             | Single image to attach. Wins over `video_url`.                   |
 //  | video_url         | String (https)             | Single video to attach. Used only when `image_url` is absent.    |
 //  | attachments       | [String] or [{id,url}]     | Multiple media URLs. Takes precedence over image_url/video_url.  |
@@ -283,6 +285,9 @@ public enum AppPushServiceExtension {
     ///   2. `aps.sound` — the standard APNs location; re-applied explicitly so it
     ///      survives the mutable-copy path regardless of iOS version.
     ///   3. Neither present → leave `content.sound` untouched (stays whatever iOS set).
+    ///
+    /// The name may omit the file extension, as on Android ("pop" plays pop.wav) — see
+    /// `resolveSoundFileName(_:)`.
     private static func applySound(
         to content: UNMutableNotificationContent,
         userInfo: [AnyHashable: Any]
@@ -294,9 +299,47 @@ public enum AppPushServiceExtension {
 
         if soundName == "default" || soundName.isEmpty {
             content.sound = .default
+        } else if let fileName = resolveSoundFileName(soundName) {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: fileName))
         } else {
-            content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: soundName))
+            // Same fallback as Android when res/raw has no such sound.
+            NSLog("[AppPushService NSE] Sound \"%@\" not found in the app bundle or App Group " +
+                  "Library/Sounds — using the default sound.", soundName)
+            content.sound = .default
         }
+    }
+
+    /// File types iOS can play as a notification sound (aiff, wav or caf, under 30 s).
+    private static let soundFileExtensions = ["caf", "wav", "aiff", "aif"]
+
+    /// iOS finds a sound only by its full file name, while Android's `res/raw` names have no
+    /// extension. A name with an extension is returned unchanged. One without ("pop") is
+    /// matched to the first bundled file of a playable type ("pop.wav"), searched where iOS
+    /// looks: the app's bundle and the App Group's Library/Sounds. (The app container's own
+    /// Library/Sounds is outside the extension's sandbox.) Nil when nothing matches.
+    private static func resolveSoundFileName(_ name: String) -> String? {
+        guard (name as NSString).pathExtension.isEmpty else { return name }
+
+        // This process's Bundle.main is the .appex inside the app's PlugIns folder.
+        let ownURL = Bundle.main.bundleURL
+        let appBundle = ownURL.pathExtension == "appex"
+            ? Bundle(url: ownURL.deletingLastPathComponent().deletingLastPathComponent())
+            : Bundle.main
+        let groupSounds = resolveAppGroupId()
+            .flatMap { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) }?
+            .appendingPathComponent("Library/Sounds", isDirectory: true)
+
+        for ext in soundFileExtensions {
+            let fileName = "\(name).\(ext)"
+            if appBundle?.url(forResource: name, withExtension: ext) != nil {
+                return fileName
+            }
+            if let groupSounds,
+               FileManager.default.fileExists(atPath: groupSounds.appendingPathComponent(fileName).path) {
+                return fileName
+            }
+        }
+        return nil
     }
 
     // MARK: Badge

@@ -1,3 +1,7 @@
+## 1.0.8-beta
+- Fixed a crash on launch (`EXC_BAD_ACCESS`) in apps whose AppDelegate doesn't implement every APNs callback, e.g. React Native. Introduced in 1.0.7-beta.
+- The `sound` payload key can omit the file extension, as on Android: `"pop"` plays `pop.wav`. A sound that isn't found plays the default sound.
+
 ## 1.0.7-beta
 - Default log level is now `.warn`, so errors and warnings always reach the console. Set it without code via the Info.plist key `AppsOnAirLogLevel`.
 - New `apnsCallbackNotReceived` error when no APNs callback arrives after registering (e.g. another library proxies the AppDelegate).

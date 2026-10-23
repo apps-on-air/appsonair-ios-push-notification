@@ -18,6 +18,8 @@ final class PushAppDelegateSwizzler {
 
     nonisolated(unsafe) private static var hasSwizzled = false
     private static var notificationDelegate: PushNotificationDelegate?
+    /// Held once safeSwizzle() reassigns UIApplication.shared.delegate (see there).
+    private static var appDelegate: UIApplicationDelegate?
 
     static func swizzle() {
         guard !hasSwizzled else { return }
@@ -98,7 +100,11 @@ final class PushAppDelegateSwizzler {
         // swizzle *added* (one the AppDelegate didn't declare) is never called: no APNs token.
         // Reassigning the delegate makes UIKit check again, as Firebase does. The token arrives
         // asynchronously after registerForRemoteNotifications(), so this is in time.
+        // UIApplication.delegate is `assign`: the AppDelegate UIApplicationMain created is owned
+        // by UIApplication only until the property is set again, so setting it frees the
+        // AppDelegate and later reads crash. Hold it for the app's lifetime, as Firebase does.
         if !delegateHadAll, let delegate = UIApplication.shared.delegate {
+            appDelegate = delegate
             UIApplication.shared.delegate = nil
             UIApplication.shared.delegate = delegate
         }
