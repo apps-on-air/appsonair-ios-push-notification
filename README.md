@@ -10,7 +10,7 @@ Add push notifications to your iOS app in minutes. The SDK handles APNs device r
 > [!WARNING]
 > **Beta release — not for production use.**
 >
-> `1.0.2-beta` is an early access release intended for evaluation, integration testing, and
+> `1.0.8-beta` is an early access release intended for evaluation, integration testing, and
 > prototype builds. Do not ship this version in a production app or a build with a large user base.
 >
 > - The public API may change between releases without a deprecation period.
@@ -67,7 +67,7 @@ For full documentation visit [documentation.appsonair.com](https://documentation
 | | Minimum |
 |---|---|
 | iOS | 15.0 |
-| Xcode | 16+ |
+| Xcode | 16.2+ (SPM) · 16+ (CocoaPods) |
 | Swift | 6.2 (SPM) · 5.9 (CocoaPods) |
 | Objective-C | Fully supported via `AOA*` facade classes |
 
@@ -91,7 +91,7 @@ In Xcode: **File → Add Package Dependencies** → enter the repository URL:
 https://github.com/apps-on-air/appsonair-ios-push-notification
 ```
 
-Set the version rule to **Up to Next Minor Version** from `1.0.2-beta` — this accepts patch releases automatically and blocks minor bumps (`1.1+`) that may carry breaking changes. Link products per the table above.
+Set the version rule to **Up to Next Minor Version** from `1.0.8-beta` — this accepts patch releases automatically and blocks minor bumps (`1.1+`) that may carry breaking changes. Link products per the table above.
 
 ### CocoaPods
 
@@ -105,17 +105,17 @@ Set the version rule to **Up to Next Minor Version** from `1.0.2-beta` — this 
 > Mixing CocoaPods (main app) with SPM (extensions) also keeps working.
 
 ```ruby
-# '>= 1.0.6-beta', '< 1.1' — accepts patch releases automatically; blocks minor bumps.
+# '>= 1.0.8-beta', '< 1.1' — accepts patch releases automatically; blocks minor bumps.
 target 'MyApp' do
-  pod 'AppsOnAir-AppPush', '>= 1.0.6-beta', '< 1.1'
+  pod 'AppsOnAir-AppPush', '>= 1.0.8-beta', '< 1.1'
 end
 
 target 'MyNotificationServiceExtension' do
-  pod 'AppsOnAir-AppPush-ServiceExt', '>= 1.0.6-beta', '< 1.1'
+  pod 'AppsOnAir-AppPush-ServiceExt', '>= 1.0.8-beta', '< 1.1'
 end
 
 target 'MyNotificationContentExtension' do
-  pod 'AppsOnAir-AppPush-ContentExt', '>= 1.0.6-beta', '< 1.1'
+  pod 'AppsOnAir-AppPush-ContentExt', '>= 1.0.8-beta', '< 1.1'
 end
 ```
 

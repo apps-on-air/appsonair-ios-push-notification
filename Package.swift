@@ -33,7 +33,7 @@ let package = Package(
         // target only (never the notification extensions).
         .package(
             url: "https://github.com/apps-on-air/AppsOnAir-iOS-Core.git",
-            from: "1.2.3"
+            from: "1.3.0"
         )
     ],
     targets: [

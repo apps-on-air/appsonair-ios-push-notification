@@ -27,7 +27,7 @@ push permission, tags, aliases, email, badge, background sync, NSE rich media, N
 
 ## Prerequisites
 
-- Xcode 16+
+- Xcode 16.2+ (SPM) · 16+ (CocoaPods)
 - Physical iOS device (push not available on simulator)
 - Apple Developer account
 - App ID from the [AppsOnAir dashboard](https://dashboard.appsonair.com)
@@ -86,8 +86,8 @@ The project uses **Swift Package Manager** with a **local package** reference po
 - `AppsonairNotificationServiceExtension` target → `AppsOnAir-AppPush-ServiceExt`
 - `AppsonairNotificationContentExtension` target → `AppsOnAir-AppPush-ContentExt`
 
-The project already uses the **remote published SDK** (`1.0.3-beta`, Up to Next Minor).
-Xcode will fetch the package automatically when you open the project after `1.0.3-beta` is tagged and pushed to GitHub.
+The project already uses the **remote published SDK** (`1.0.8-beta`, Up to Next Minor).
+Xcode will fetch the package automatically when you open the project after `1.0.8-beta` is tagged and pushed to GitHub.
 
 See `Podfile` for CocoaPods integration instructions.
 
