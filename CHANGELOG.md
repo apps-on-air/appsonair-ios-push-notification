@@ -1,3 +1,6 @@
+## 1.0.9-beta
+- Bumped minimum `AppsOnAir-Core` dependency to `1.3.0` in both SPM (`Package.swift`) and CocoaPods (`AppsOnAir-AppPush.podspec`).
+
 ## 1.0.8-beta
 - Fixed a crash on launch (`EXC_BAD_ACCESS`) in apps whose AppDelegate doesn't implement every APNs callback, e.g. React Native. Introduced in 1.0.7-beta.
 - The `sound` payload key can omit the file extension, as on Android: `"pop"` plays `pop.wav`. A sound that isn't found plays the default sound.

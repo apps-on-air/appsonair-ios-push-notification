@@ -26,7 +26,7 @@ platform :ios, '15.0'
 # -----------------------------------------------------------------------------
 target 'ExampleApp' do
   use_frameworks!
-  pod 'AppsOnAir-AppPush', '1.0.3-beta'
+  pod 'AppsOnAir-AppPush', '1.0.9-beta'
 end
 
 # -----------------------------------------------------------------------------
